@@ -1,0 +1,68 @@
+{
+  "name": "electron-stream-downloader",
+  "version": "1.0.0",
+  "description": "High-performance, resumable multi-stream 500GB+ large file downloader module for Electron applications",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./main": {
+      "types": "./dist/main/index.d.ts",
+      "import": "./dist/main/index.mjs",
+      "require": "./dist/main/index.js"
+    },
+    "./preload": {
+      "types": "./dist/preload/index.d.ts",
+      "import": "./dist/preload/index.mjs",
+      "require": "./dist/preload/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.mjs",
+      "require": "./dist/react/index.js"
+    },
+    "./utils": {
+      "types": "./dist/utils/index.d.ts",
+      "import": "./dist/utils/index.mjs",
+      "require": "./dist/utils/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": [
+    "electron",
+    "downloader",
+    "streaming",
+    "large-file",
+    "500gb",
+    "s3",
+    "presigned-url",
+    "resumable",
+    "http-range",
+    "multi-stream"
+  ],
+  "author": "Antigravity",
+  "license": "MIT",
+  "peerDependencies": {
+    "electron": ">=28.0.0",
+    "react": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "@types/react": "^19.0.10",
+    "electron": "^34.2.0",
+    "react": "^19.0.0",
+    "typescript": "^5.7.3"
+  }
+}
