@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { FolderOpen, DownloadCloud, Sparkles, Link2, Zap } from 'lucide-react'
+import { FolderOpen, DownloadCloud, Link2, Zap } from 'lucide-react'
 
 interface DownloadFormProps {
   onStartDownload: (
@@ -11,17 +11,11 @@ interface DownloadFormProps {
   defaultDestination: string
 }
 
-const SAMPLE_URLS = [
-  { label: 'Cloudflare 1GB (Rate Limitsiz)', url: 'https://speed.cloudflare.com/__down?bytes=1073741824' },
-  { label: 'Ubuntu 24.04 ISO (6 GB)', url: 'https://releases.ubuntu.com/24.04/ubuntu-24.04-desktop-amd64.iso' },
-  { label: 'Debian 12 DVD (3.7 GB)', url: 'https://cdimage.debian.org/debian-cd/current/amd64/iso-dvd/debian-12.8.0-amd64-DVD-1.iso' },
-]
-
 const CONNECTION_OPTIONS = [
-  { value: 1, label: '1x (Tek Akış - Normal)' },
+  { value: 1, label: '1x (Tek Akış)' },
   { value: 4, label: '4x (Hızlı Paralel)' },
-  { value: 8, label: '8x (Turbo Paralel - Önerilen)' },
-  { value: 16, label: '16x (Ultra Turbo Maksimum Hız)' }
+  { value: 8, label: '8x (Turbo - Önerilen)' },
+  { value: 16, label: '16x (Ultra Turbo)' }
 ]
 
 export const DownloadForm: React.FC<DownloadFormProps> = ({
@@ -74,20 +68,20 @@ export const DownloadForm: React.FC<DownloadFormProps> = ({
           <DownloadCloud className="header-icon" />
         </div>
         <div>
-          <h2>Yeni İndirme Başlat</h2>
-          <p className="subtitle">500GB+ boyuttaki dosyalar 8x/16x paralel akışlarla doğrudan diske yazılır.</p>
+          <h2>Dosya İndir</h2>
+          <p className="subtitle">İndirme bağlantısını ve hedef klasörü belirtin.</p>
         </div>
       </div>
 
       <form onSubmit={handleSubmit} className="download-form">
         <div className="form-group">
           <label htmlFor="download-url">
-            <Link2 size={16} /> İndirme Bağlantısı (URL / S3 Presigned URL)
+            <Link2 size={15} /> İndirme Bağlantısı (URL / S3 Presigned URL)
           </label>
           <input
             id="download-url"
             type="url"
-            placeholder="https://bucket.s3.amazonaws.com/huge-500gb.zip?X-Amz-Signature=..."
+            placeholder="https://..."
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             required
@@ -98,7 +92,7 @@ export const DownloadForm: React.FC<DownloadFormProps> = ({
         <div className="form-row">
           <div className="form-group flex-1">
             <label htmlFor="dest-folder">
-              <FolderOpen size={16} /> Kaydedilecek Dizin
+              <FolderOpen size={15} /> Kaydedilecek Dizin
             </label>
             <div className="input-with-button">
               <input
@@ -116,7 +110,7 @@ export const DownloadForm: React.FC<DownloadFormProps> = ({
                 className="btn btn-secondary browse-btn"
                 title="Dizin Seç"
               >
-                <FolderOpen size={16} />
+                <FolderOpen size={15} />
                 <span>Gözat</span>
               </button>
             </div>
@@ -127,16 +121,16 @@ export const DownloadForm: React.FC<DownloadFormProps> = ({
             <input
               id="custom-filename"
               type="text"
-              placeholder="Otomatik algılanır veya örn: 500gb-dataset.tar"
+              placeholder="Otomatik algılanır"
               value={customFileName}
               onChange={(e) => setCustomFileName(e.target.value)}
               className="input-field"
             />
           </div>
 
-          <div className="form-group flex-none" style={{ minWidth: '220px' }}>
+          <div className="form-group flex-none" style={{ minWidth: '200px' }}>
             <label htmlFor="connections-select">
-              <Zap size={16} style={{ color: 'var(--accent-yellow)' }} /> Paralel Akış Hızı
+              <Zap size={15} style={{ color: 'var(--accent-yellow)' }} /> Bağlantı Sayısı
             </label>
             <select
               id="connections-select"
@@ -153,28 +147,14 @@ export const DownloadForm: React.FC<DownloadFormProps> = ({
           </div>
         </div>
 
-        <div className="form-footer">
-          <div className="preset-links">
-            <span className="preset-label"><Sparkles size={14} /> Hızlı Test URL'leri:</span>
-            {SAMPLE_URLS.map((sample, idx) => (
-              <button
-                key={idx}
-                type="button"
-                className="preset-tag"
-                onClick={() => setUrl(sample.url)}
-              >
-                {sample.label}
-              </button>
-            ))}
-          </div>
-
+        <div className="form-footer-clean">
           <button
             type="submit"
             disabled={!url.trim() || isSubmitting}
             className="btn btn-primary start-btn"
           >
-            <Zap size={18} />
-            <span>{connections > 1 ? `${connections}x Turbo Paralel İndir` : 'Tek Akış İndir'}</span>
+            <DownloadCloud size={16} />
+            <span>İndirmeyi Başlat</span>
           </button>
         </div>
       </form>
