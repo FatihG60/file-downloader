@@ -4,7 +4,8 @@ Bu proje, Electron, Vite ve React kullanarak **500 GB ve üzeri devasa boyutlu d
 
 Ayrıca bu motor, **başka herhangi bir Electron projesine tek satırda eklenebilecek bağımsız bir npm paketi (`packages/electron-stream-downloader`)** olarak paketlenmiştir.
 
-> 📖 **Mimari Püf Noktaları, USB/SSD Tavsiyeleri ve Best Practices:** Detaylı rehber için **[ARCHITECTURE_AND_TIPS.md](./ARCHITECTURE_AND_TIPS.md)** dosyasını inceleyebilirsiniz.
+> 📖 **Mimari Püf Noktaları, USB/SSD Tavsiyeleri ve Best Practices:** Detaylı rehber için **[ARCHITECTURE_AND_TIPS.md](./ARCHITECTURE_AND_TIPS.md)** dosyasını inceleyebilirsiniz.  
+> 📋 **Gelecek Özellikler Yol Haritası (Roadmap):** Planlanan geliştirmeler için **[ROADMAP.md](./ROADMAP.md)** dosyasını inceleyebilirsiniz.
 
 ---
 
