@@ -256,6 +256,18 @@ export class DownloaderEngine extends EventEmitter {
     }
     this.fileDescriptor = fs.openSync(this.partFilePath, fileFlags)
 
+    // Gigabit Optimization: Pre-allocate file size to prevent NTFS metadata fragmentation & MFT locking
+    if (this.totalBytes > 0) {
+      try {
+        const currentSize = fs.statSync(this.partFilePath).size
+        if (currentSize < this.totalBytes) {
+          fs.ftruncateSync(this.fileDescriptor, this.totalBytes)
+        }
+      } catch (allocErr) {
+        // Continue even if pre-allocation is not supported by file system
+      }
+    }
+
     this.downloadedBytes = this.chunks.reduce((acc, c) => acc + c.downloaded, 0)
     this.lastReportBytes = this.downloadedBytes
     this.lastReportTime = Date.now()
@@ -389,7 +401,7 @@ export class DownloaderEngine extends EventEmitter {
 
         let pendingBuffers: Buffer[] = []
         let pendingBytes = 0
-        const FLUSH_THRESHOLD = 1024 * 1024 * 2 // 2MB batch buffer per worker (drastically reduces Disk Active Time to ~5%)
+        const FLUSH_THRESHOLD = 1024 * 1024 * 4 // 4MB high-throughput batch buffer for Gigabit networks (100MB/s+)
 
         const flushBuffer = () => {
           if (pendingBuffers.length === 0 || this.fileDescriptor === null || this.isAborted) return

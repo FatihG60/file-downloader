@@ -269,6 +269,18 @@ export class DownloaderEngine extends EventEmitter {
     }
     this.fileDescriptor = fs.openSync(this.partFilePath, fileFlags)
 
+    // Gigabit Optimization: Pre-allocate file size to prevent NTFS metadata fragmentation & MFT locking
+    if (this.totalBytes > 0) {
+      try {
+        const currentSize = fs.statSync(this.partFilePath).size
+        if (currentSize < this.totalBytes) {
+          fs.ftruncateSync(this.fileDescriptor, this.totalBytes)
+        }
+      } catch (allocErr) {
+        // Continue even if pre-allocation is not supported by file system
+      }
+    }
+
     // Calculate currently downloaded total
     this.downloadedBytes = this.chunks.reduce((acc, c) => acc + c.downloaded, 0)
     this.lastReportBytes = this.downloadedBytes
@@ -382,7 +394,6 @@ export class DownloaderEngine extends EventEmitter {
         if (res.statusCode === 429 || res.statusCode === 503) {
           res.resume()
           if (retries > 0 && !this.isAborted) {
-            // Check Retry-After header or use exponential backoff (e.g. 1.5s, 3s, 6s)
             let waitMs = Math.min(8000, Math.pow(2, 6 - retries) * 1200 + Math.random() * 500)
             const retryAfter = res.headers['retry-after']
             if (retryAfter) {
@@ -413,7 +424,7 @@ export class DownloaderEngine extends EventEmitter {
 
         let pendingBuffers: Buffer[] = []
         let pendingBytes = 0
-        const FLUSH_THRESHOLD = 1024 * 1024 * 2 // 2MB batch buffer per worker (drastically reduces Disk Active Time to ~5%)
+        const FLUSH_THRESHOLD = 1024 * 1024 * 4 // 4MB high-throughput batch buffer for Gigabit networks (100MB/s+)
 
         const flushBuffer = () => {
           if (pendingBuffers.length === 0 || this.fileDescriptor === null || this.isAborted) return
