@@ -115,7 +115,7 @@ export const DownloadForm: React.FC<DownloadFormProps> = ({
                 <span className={`disk-badge ${diskInfo.isFat32 ? 'disk-badge-danger' : 'disk-badge-info'}`}>
                   <HardDrive size={12} />
                   <span>
-                    {diskInfo.driveLetter}: {diskInfo.busType !== 'Unknown' ? `[${diskInfo.busType}]` : ''} ({diskInfo.fileSystem}) • {formatBytes(diskInfo.freeBytes)} Boş
+                    {diskInfo.driveLetter}: [{(diskInfo.usbVersion || diskInfo.busType) !== 'Unknown' ? (diskInfo.usbVersion || diskInfo.busType) : 'Disk'}] ({diskInfo.fileSystem}) • {formatBytes(diskInfo.freeBytes)} Boş
                   </span>
                 </span>
               )}

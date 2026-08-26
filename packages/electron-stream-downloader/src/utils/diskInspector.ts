@@ -11,6 +11,7 @@ export interface DiskInfo {
   fileSystem: string
   driveType: 'Fixed' | 'Removable' | 'Network' | 'CD-ROM' | 'Unknown'
   busType: 'NVMe' | 'SATA' | 'SAS' | 'USB' | 'SCSI' | 'RAID' | 'Unknown'
+  usbVersion?: 'USB 2.0' | 'USB 3.0+' | 'USB'
   modelName: string
   isFat32: boolean
   isRemovable: boolean
@@ -45,6 +46,7 @@ export async function inspectPath(folderPath: string): Promise<DiskInfo> {
   let fileSystem = 'NTFS'
   let driveType: DiskInfo['driveType'] = 'Fixed'
   let busType: DiskInfo['busType'] = 'Unknown'
+  let usbVersion: DiskInfo['usbVersion'] = undefined
   let modelName = 'Depolama Sürücüsü'
   let isRemovable = false
   let isUsb = false
@@ -61,20 +63,22 @@ export async function inspectPath(folderPath: string): Promise<DiskInfo> {
       fileSystem = cached.info.fileSystem || fileSystem
       driveType = cached.info.driveType || driveType
       busType = cached.info.busType || busType
+      usbVersion = cached.info.usbVersion
       modelName = cached.info.modelName || modelName
       isRemovable = cached.info.isRemovable || isRemovable
       isUsb = cached.info.isUsb || isUsb
       isFat32 = cached.info.isFat32 || isFat32
     } else {
       try {
-        const cmd = `powershell -NoProfile -Command "Get-Partition -DriveLetter ${driveLetter} | Select-Object DriveLetter, @{N='BusType';E={(Get-Disk -Number $_.DiskNumber).BusType}}, @{N='Model';E={(Get-Disk -Number $_.DiskNumber).FriendlyName}}, @{N='FileSystem';E={(Get-Volume -DriveLetter $_.DriveLetter).FileSystem}}, @{N='DriveType';E={(Get-Volume -DriveLetter $_.DriveLetter).DriveType}} | ConvertTo-Json -Compress"`
-        const { stdout } = await execAsync(cmd, { timeout: 3500 })
+        const cmd = `powershell -NoProfile -Command "& { $p = Get-Partition -DriveLetter ${driveLetter}; $d = Get-Disk -Number $p.DiskNumber; $v = Get-Volume -DriveLetter ${driveLetter}; $bus = $d.BusType; $usbVer = ''; if ($bus -eq 'USB') { $dev = Get-PnpDevice -Class DiskDrive | Where-Object { $_.InstanceId -match 'USBSTOR|UASPSTOR' -and $_.FriendlyName -match $d.FriendlyName } | Select-Object -First 1; if ($dev) { $parent = (Get-PnpDeviceProperty -InstanceId $dev.InstanceId -KeyName 'DEVPKEY_Device_Parent').Data; $speed = (Get-PnpDeviceProperty -InstanceId $parent -KeyName '{8DBC9C86-97A9-4BFF-9BC6-BFE95D3E6DAD} 15').Data; if ($speed -eq 2) { $usbVer = 'USB 2.0' } elseif ($speed -ge 3) { $usbVer = 'USB 3.0+' } } if (-not $usbVer) { $usbVer = 'USB' } }; [PSCustomObject]@{ DriveLetter='${driveLetter}'; FileSystem=$v.FileSystem; DriveType=$v.DriveType; BusType=$bus; UsbVersion=$usbVer; Model=$d.FriendlyName; FreeSpace=$v.SizeRemaining; Capacity=$v.Size } | ConvertTo-Json -Compress }"`
+        const { stdout } = await execAsync(cmd, { timeout: 4000 })
         if (stdout && stdout.trim().startsWith('{')) {
           const parsed = JSON.parse(stdout.trim())
           fileSystem = (parsed.FileSystem || 'NTFS').toUpperCase()
           driveType = parsed.DriveType || 'Fixed'
           const rawBus = (parsed.BusType || '').toUpperCase()
           modelName = parsed.Model || 'Depolama Sürücüsü'
+          const rawUsbVer = parsed.UsbVersion || ''
 
           if (rawBus.includes('NVME')) busType = 'NVMe'
           else if (rawBus.includes('USB')) busType = 'USB'
@@ -83,13 +87,20 @@ export async function inspectPath(folderPath: string): Promise<DiskInfo> {
           else if (rawBus.includes('SCSI') || rawBus.includes('RAID')) busType = 'RAID'
           else busType = 'Unknown'
 
+          if (rawUsbVer === 'USB 2.0') usbVersion = 'USB 2.0'
+          else if (rawUsbVer === 'USB 3.0+') usbVersion = 'USB 3.0+'
+          else if (busType === 'USB') usbVersion = 'USB'
+
           isUsb = busType === 'USB' || driveType === 'Removable'
           isRemovable = driveType === 'Removable' || isUsb
           const isExFat = fileSystem.includes('EXFAT')
           isFat32 = !isExFat && (fileSystem.includes('FAT32') || fileSystem.includes('FAT16') || fileSystem === 'FAT')
 
+          if (parsed.FreeSpace) freeBytes = Number(parsed.FreeSpace)
+          if (parsed.Capacity) totalBytes = Number(parsed.Capacity)
+
           volumeCache.set(driveLetter, {
-            info: { fileSystem, driveType, busType, modelName, isRemovable, isUsb, isFat32 },
+            info: { fileSystem, driveType, busType, usbVersion, modelName, isRemovable, isUsb, isFat32 },
             timestamp: now
           })
         }
@@ -110,14 +121,21 @@ export async function inspectPath(folderPath: string): Promise<DiskInfo> {
   let recommendedFlushThreshold = 1024 * 1024 * 4 // 4MB
   let profileLabel = 'SSD / Dahili Sürücü'
 
-  if (isUsb || busType === 'USB') {
+  if (usbVersion === 'USB 2.0') {
+    recommendedConnections = 2
+    recommendedFlushThreshold = 1024 * 1024 * 4
+    profileLabel = `USB 2.0 (${modelName}) • Max ~30 MB/s`
+    if (!warning) {
+      warning = `Bilgi: Sürücü USB 2.0 portuna bağlı (${modelName}). Darboğazı ve donmayı önlemek için 2x akış önerilir.`
+    }
+  } else if (usbVersion === 'USB 3.0+' || isUsb) {
     recommendedConnections = 4
     recommendedFlushThreshold = 1024 * 1024 * 4
-    profileLabel = `USB Sürücü (${modelName})`
+    profileLabel = `USB 3.0+ (${modelName})`
   } else if (busType === 'NVMe') {
     recommendedConnections = 16
     recommendedFlushThreshold = 1024 * 1024 * 4
-    profileLabel = `NVMe SSD (${modelName})`
+    profileLabel = `NVMe SSD (${modelName}) • Ultra Hızlı`
   } else if (busType === 'SAS' || busType === 'RAID') {
     recommendedConnections = 8
     recommendedFlushThreshold = 1024 * 1024 * 4
@@ -130,8 +148,9 @@ export async function inspectPath(folderPath: string): Promise<DiskInfo> {
 
   const freeGB = (freeBytes / (1024 * 1024 * 1024)).toFixed(2)
   const totalGB = (totalBytes / (1024 * 1024 * 1024)).toFixed(2)
+  const hardwareBadge = usbVersion || busType
 
-  console.log(`💾 [DiskInspector] Path: "${resolved}" | Sürücü: ${driveLetter}: (${modelName}) | Veriyolu (Bus): ${busType} | Dosya Sistemi: ${fileSystem} | Tip: ${driveType} | Boş Alan: ${freeGB} GB / ${totalGB} GB | Önerilen Akış: ${recommendedConnections}x (${profileLabel})`)
+  console.log(`💾 [DiskInspector] Path: "${resolved}" | Sürücü: ${driveLetter}: (${modelName}) | Arayüz: ${hardwareBadge} | Dosya Sistemi: ${fileSystem} | Tip: ${driveType} | Boş Alan: ${freeGB} GB / ${totalGB} GB | Önerilen Akış: ${recommendedConnections}x (${profileLabel})`)
   if (warning) {
     console.warn(`⚠️ [DiskInspector Uyarısı] ${warning}`)
   }
@@ -142,6 +161,7 @@ export async function inspectPath(folderPath: string): Promise<DiskInfo> {
     fileSystem,
     driveType,
     busType,
+    usbVersion,
     modelName,
     isFat32,
     isRemovable,
