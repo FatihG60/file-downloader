@@ -21,7 +21,6 @@ export interface DiskInfo {
   warning?: string
 }
 
-// Native Win32 Function Bindings via Koffi (Loaded once in process memory)
 let win32Native: {
   GetVolumeInformationW: any
   GetDiskFreeSpaceExW: any
@@ -84,7 +83,7 @@ function initWin32Bindings() {
       CloseHandle
     }
     return win32Native
-  } catch (err) {
+  } catch {
     return null
   }
 }
@@ -116,6 +115,7 @@ export async function inspectPath(folderPath: string): Promise<DiskInfo> {
   let isRemovable = false
   let isUsb = false
   let isFat32 = false
+  let maxTransferLength = 0
 
   if (isWindows) {
     const match = resolved.match(/^([a-zA-Z]):/i)
@@ -171,20 +171,20 @@ export async function inspectPath(folderPath: string): Promise<DiskInfo> {
         // fallback
       }
 
-      // D. Win32 Native: DeviceIoControl (IOCTL_STORAGE_QUERY_PROPERTY -> BusType & Model Name)
+      // D. Win32 Native: DeviceIoControl (IOCTL_STORAGE_QUERY_PROPERTY -> BusType, USB 2.0/3.0, Model Name)
       try {
         const hVolume = win32.CreateFileW(`\\\\.\\${driveLetter}:`, 0, 7, null, 3, 0, null)
         if (hVolume && hVolume !== -1 && hVolume !== 0) {
+          const IOCTL_STORAGE_QUERY_PROPERTY = 0x002D1400
+
+          // Query 1: StorageDeviceProperty (BusType + Product Name)
           const inBuf = Buffer.alloc(12)
           inBuf.writeUInt32LE(0, 0) // StorageDeviceProperty
           inBuf.writeUInt32LE(0, 4) // PropertyStandardQuery
 
           const outBuf = Buffer.alloc(2048)
           const bytesReturned = [0]
-          const IOCTL_STORAGE_QUERY_PROPERTY = 0x002D1400
-
           const ioOk = win32.DeviceIoControl(hVolume, IOCTL_STORAGE_QUERY_PROPERTY, inBuf, 12, outBuf, 2048, bytesReturned, null)
-          win32.CloseHandle(hVolume)
 
           if (ioOk && bytesReturned[0] >= 32) {
             const rawBusType = outBuf.readInt32LE(28)
@@ -203,8 +203,6 @@ export async function inspectPath(folderPath: string): Promise<DiskInfo> {
             const fullName = [vendor, prod].filter(Boolean).join(' ').trim()
             if (fullName) modelName = fullName
 
-            // Map Win32 STORAGE_BUS_TYPE enum
-            // 0x11 = BusTypeNvme, 0x07 = BusTypeUsb, 0x0B = BusTypeSata, 0x0A = BusTypeSas, 0x08 = BusTypeRaid, 0x01 = BusTypeScsi
             switch (rawBusType) {
               case 0x11:
                 busType = 'NVMe'
@@ -229,6 +227,31 @@ export async function inspectPath(folderPath: string): Promise<DiskInfo> {
                 break
             }
           }
+
+          // Query 2: StorageAdapterProperty (Transfer Block Size for USB 2.0 vs 3.0 detection)
+          if (busType === 'USB' || isUsb) {
+            const inBufAdapter = Buffer.alloc(12)
+            inBufAdapter.writeUInt32LE(1, 0) // StorageAdapterProperty
+            inBufAdapter.writeUInt32LE(0, 4) // PropertyStandardQuery
+
+            const outBufAdapter = Buffer.alloc(1024)
+            const ioAdapterOk = win32.DeviceIoControl(hVolume, IOCTL_STORAGE_QUERY_PROPERTY, inBufAdapter, 12, outBufAdapter, 1024, bytesReturned, null)
+
+            if (ioAdapterOk && bytesReturned[0] >= 12) {
+              maxTransferLength = outBufAdapter.readUInt32LE(8)
+              if (maxTransferLength > 0 && maxTransferLength <= 131072) {
+                usbVersion = 'USB 2.0'
+              } else if (maxTransferLength > 131072) {
+                usbVersion = 'USB 3.0+'
+              } else {
+                usbVersion = 'USB'
+              }
+            } else {
+              usbVersion = 'USB'
+            }
+          }
+
+          win32.CloseHandle(hVolume)
         }
       } catch {
         // fallback
@@ -242,7 +265,7 @@ export async function inspectPath(folderPath: string): Promise<DiskInfo> {
     driveLetter = '/'
   }
 
-  // Determine warnings and granular speed profiles
+  // Determine warnings and speed recommendations
   let warning: string | undefined
   if (isFat32) {
     warning = `DİKKAT: ${driveLetter}: sürücüsü FAT32 formatında. 4GB'tan büyük tek dosya indirilemez. exFAT veya NTFS kullanın.`
@@ -252,19 +275,31 @@ export async function inspectPath(folderPath: string): Promise<DiskInfo> {
   let recommendedFlushThreshold = 1024 * 1024 * 4 // 4MB
   let profileLabel = 'SSD / Dahili Sürücü'
 
-  if (busType === 'NVMe') {
+  if (usbVersion === 'USB 2.0') {
+    // USB 2.0 (HighSpeed BOT Protocol): Max ~30 MB/s
+    recommendedConnections = 2
+    recommendedFlushThreshold = 1024 * 1024 * 4
+    profileLabel = `USB 2.0 (${modelName}) • Max ~30 MB/s`
+    if (!warning) {
+      warning = `Bilgi: Sürücü USB 2.0 protokolü ile bağlı (${modelName}). Darboğazı ve donmayı önlemek için 2x akış önerilir.`
+    }
+  } else if (usbVersion === 'USB 3.0+' || isUsb) {
+    // USB 3.0+ (SuperSpeed / UASP): 100 - 500+ MB/s
+    recommendedConnections = 4
+    recommendedFlushThreshold = 1024 * 1024 * 4
+    profileLabel = `USB 3.0+ (${modelName})`
+  } else if (busType === 'NVMe') {
+    // Ultra-Fast NVMe SSD
     recommendedConnections = 16
     recommendedFlushThreshold = 1024 * 1024 * 4
     profileLabel = `NVMe SSD (${modelName}) • Ultra Hızlı`
-  } else if (isUsb || busType === 'USB') {
-    recommendedConnections = 4
-    recommendedFlushThreshold = 1024 * 1024 * 4
-    profileLabel = `USB Sürücü (${modelName})`
   } else if (busType === 'SAS' || busType === 'RAID') {
+    // Enterprise SAS / RAID Array
     recommendedConnections = 8
     recommendedFlushThreshold = 1024 * 1024 * 4
     profileLabel = `Kurumsal SAS/RAID (${modelName})`
   } else {
+    // Standard SATA SSD / Fixed Drive
     recommendedConnections = 8
     recommendedFlushThreshold = 1024 * 1024 * 4
     profileLabel = `${busType !== 'Unknown' ? busType : 'Sabit'} Disk (${modelName})`
@@ -273,8 +308,9 @@ export async function inspectPath(folderPath: string): Promise<DiskInfo> {
   const freeGB = (freeBytes / (1024 * 1024 * 1024)).toFixed(2)
   const totalGB = (totalBytes / (1024 * 1024 * 1024)).toFixed(2)
   const inspectDurationMs = Number((performance.now() - startTime).toFixed(3))
+  const hardwareBadge = usbVersion || busType
 
-  console.log(`⚡ [Native Win32 DiskInspector (${inspectDurationMs}ms)] Path: "${resolved}" | Sürücü: ${driveLetter}: (${modelName}) | Arayüz: ${busType} | Dosya Sistemi: ${fileSystem} | Tip: ${driveType} | Boş Alan: ${freeGB} GB / ${totalGB} GB | Önerilen Akış: ${recommendedConnections}x`)
+  console.log(`⚡ [Native Win32 DiskInspector (${inspectDurationMs}ms)] Path: "${resolved}" | Sürücü: ${driveLetter}: (${modelName}) | Arayüz: ${hardwareBadge} | Dosya Sistemi: ${fileSystem} | Tip: ${driveType} | Boş Alan: ${freeGB} GB / ${totalGB} GB | Önerilen Akış: ${recommendedConnections}x (${profileLabel})`)
   if (warning) {
     console.warn(`⚠️ [DiskInspector Uyarısı] ${warning}`)
   }
