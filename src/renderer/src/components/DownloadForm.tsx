@@ -40,8 +40,13 @@ export const DownloadForm: React.FC<DownloadFormProps> = ({
   useEffect(() => {
     if (destinationFolder && window.electronAPI?.inspectPath) {
       window.electronAPI.inspectPath(destinationFolder).then((info) => {
-        if (info) setDiskInfo(info)
-      }).catch(() => {})
+        if (info) {
+          setDiskInfo(info)
+          console.log('💾 [Renderer Disk Info]:', info)
+        }
+      }).catch((err) => {
+        console.error('Failed to inspect path:', err)
+      })
     }
   }, [destinationFolder])
 

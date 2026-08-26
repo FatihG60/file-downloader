@@ -99,9 +99,17 @@ export async function inspectPath(folderPath: string): Promise<DiskInfo> {
     recommendedConnections = 4
     recommendedFlushThreshold = 1024 * 1024 * 4
   } else if (driveType === 'Fixed') {
-    // NVMe / SSD: full concurrency
+    // NVMe / SSD / SAS / HDD: full concurrency
     recommendedConnections = 8
     recommendedFlushThreshold = 1024 * 1024 * 4
+  }
+
+  const freeGB = (freeBytes / (1024 * 1024 * 1024)).toFixed(2)
+  const totalGB = (totalBytes / (1024 * 1024 * 1024)).toFixed(2)
+
+  console.log(`💾 [DiskInspector] Path: "${resolved}" | Sürücü: ${driveLetter}: | Dosya Sistemi: ${fileSystem} | Tip: ${driveType} | Boş Alan: ${freeGB} GB / ${totalGB} GB | Önerilen Akış: ${recommendedConnections}x`)
+  if (warning) {
+    console.warn(`⚠️ [DiskInspector Uyarısı] ${warning}`)
   }
 
   return {

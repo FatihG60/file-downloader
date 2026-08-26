@@ -97,6 +97,14 @@ export async function inspectPath(folderPath: string): Promise<DiskInfo> {
     recommendedFlushThreshold = 1024 * 1024 * 4
   }
 
+  const freeGB = (freeBytes / (1024 * 1024 * 1024)).toFixed(2)
+  const totalGB = (totalBytes / (1024 * 1024 * 1024)).toFixed(2)
+
+  console.log(`💾 [DiskInspector] Path: "${resolved}" | Sürücü: ${driveLetter}: | Dosya Sistemi: ${fileSystem} | Tip: ${driveType} | Boş Alan: ${freeGB} GB / ${totalGB} GB | Önerilen Akış: ${recommendedConnections}x`)
+  if (warning) {
+    console.warn(`⚠️ [DiskInspector Uyarısı] ${warning}`)
+  }
+
   return {
     driveLetter,
     folderPath: resolved,
