@@ -1,9 +1,5 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { exec } from 'node:child_process'
-import { promisify } from 'node:util'
-
-const execAsync = promisify(exec)
 
 export interface DiskInfo {
   driveLetter: string
@@ -21,18 +17,85 @@ export interface DiskInfo {
   recommendedConnections: number
   recommendedFlushThreshold: number
   profileLabel: string
+  inspectDurationMs: number
   warning?: string
 }
 
-// Memory cache per drive letter
-const volumeCache: Map<string, { info: Partial<DiskInfo>; timestamp: number }> = new Map()
+// Native Win32 Function Bindings via Koffi (Loaded once in process memory)
+let win32Native: {
+  GetVolumeInformationW: any
+  GetDiskFreeSpaceExW: any
+  GetDriveTypeW: any
+  CreateFileW: any
+  DeviceIoControl: any
+  CloseHandle: any
+} | null = null
+
+function initWin32Bindings() {
+  if (process.platform !== 'win32') return null
+  if (win32Native !== null) return win32Native
+
+  try {
+    const koffi = require('koffi')
+    const k32 = koffi.load('kernel32.dll')
+
+    const GetVolumeInformationW = k32.func(
+      'bool __stdcall GetVolumeInformationW(' +
+      'str16 lpRootPathName, ' +
+      '_Out_ uint16 *lpVolumeNameBuffer, uint32 nVolumeNameSize, ' +
+      '_Out_ uint32 *lpVolumeSerialNumber, ' +
+      '_Out_ uint32 *lpMaximumComponentLength, ' +
+      '_Out_ uint32 *lpFileSystemFlags, ' +
+      '_Out_ uint16 *lpFileSystemNameBuffer, uint32 nFileSystemNameSize)'
+    )
+
+    const GetDiskFreeSpaceExW = k32.func(
+      'bool __stdcall GetDiskFreeSpaceExW(' +
+      'str16 lpDirectoryName, ' +
+      '_Out_ uint64 *lpFreeBytesAvailableToCaller, ' +
+      '_Out_ uint64 *lpTotalNumberOfBytes, ' +
+      '_Out_ uint64 *lpTotalNumberOfFreeBytes)'
+    )
+
+    const GetDriveTypeW = k32.func('uint32 __stdcall GetDriveTypeW(str16 lpRootPathName)')
+
+    const CreateFileW = k32.func(
+      'intptr_t __stdcall CreateFileW(' +
+      'str16 lpFileName, uint32 dwDesiredAccess, uint32 dwShareMode, ' +
+      'void *lpSecurityAttributes, uint32 dwCreationDisposition, ' +
+      'uint32 dwFlagsAndAttributes, void *hTemplateFile)'
+    )
+
+    const DeviceIoControl = k32.func(
+      'bool __stdcall DeviceIoControl(' +
+      'intptr_t hDevice, uint32 dwIoControlCode, void *lpInBuffer, ' +
+      'uint32 nInBufferSize, _Out_ void *lpOutBuffer, uint32 nOutBufferSize, ' +
+      '_Out_ uint32 *lpBytesReturned, void *lpOverlapped)'
+    )
+
+    const CloseHandle = k32.func('bool __stdcall CloseHandle(intptr_t hObject)')
+
+    win32Native = {
+      GetVolumeInformationW,
+      GetDiskFreeSpaceExW,
+      GetDriveTypeW,
+      CreateFileW,
+      DeviceIoControl,
+      CloseHandle
+    }
+    return win32Native
+  } catch (err) {
+    return null
+  }
+}
 
 export async function inspectPath(folderPath: string): Promise<DiskInfo> {
+  const startTime = performance.now()
   const resolved = path.resolve(folderPath)
   let freeBytes = 0
   let totalBytes = 0
 
-  // 1. Fast native statfs for free / total space
+  // 1. Fallback / Baseline: Node.js native statfsSync
   try {
     if (fs.existsSync(resolved)) {
       const stats = fs.statfsSync(resolved)
@@ -57,58 +120,123 @@ export async function inspectPath(folderPath: string): Promise<DiskInfo> {
   if (isWindows) {
     const match = resolved.match(/^([a-zA-Z]):/i)
     driveLetter = match ? match[1].toUpperCase() : 'C'
+    const rootDrive = `${driveLetter}:\\`
 
-    const cached = volumeCache.get(driveLetter)
-    const now = Date.now()
+    const win32 = initWin32Bindings()
 
-    if (cached && now - cached.timestamp < 15000) {
-      fileSystem = cached.info.fileSystem || fileSystem
-      driveType = cached.info.driveType || driveType
-      busType = cached.info.busType || busType
-      usbVersion = cached.info.usbVersion
-      modelName = cached.info.modelName || modelName
-      isRemovable = cached.info.isRemovable || isRemovable
-      isUsb = cached.info.isUsb || isUsb
-      isFat32 = cached.info.isFat32 || isFat32
-    } else {
+    if (win32) {
+      // A. Win32 Native: GetVolumeInformationW (File System: NTFS, EXFAT, FAT32)
       try {
-        const cmd = `powershell -NoProfile -Command "& { $p = Get-Partition -DriveLetter ${driveLetter}; $d = Get-Disk -Number $p.DiskNumber; $v = Get-Volume -DriveLetter ${driveLetter}; $bus = $d.BusType; $usbVer = ''; if ($bus -eq 'USB') { $dev = Get-PnpDevice -Class DiskDrive | Where-Object { $_.InstanceId -match 'USBSTOR|UASPSTOR' -and $_.FriendlyName -match $d.FriendlyName } | Select-Object -First 1; if ($dev) { $parent = (Get-PnpDeviceProperty -InstanceId $dev.InstanceId -KeyName 'DEVPKEY_Device_Parent').Data; $speed = (Get-PnpDeviceProperty -InstanceId $parent -KeyName '{8DBC9C86-97A9-4BFF-9BC6-BFE95D3E6DAD} 15').Data; if ($speed -eq 2) { $usbVer = 'USB 2.0' } elseif ($speed -ge 3) { $usbVer = 'USB 3.0+' } } if (-not $usbVer) { $usbVer = 'USB' } }; [PSCustomObject]@{ DriveLetter='${driveLetter}'; FileSystem=$v.FileSystem; DriveType=$v.DriveType; BusType=$bus; UsbVersion=$usbVer; Model=$d.FriendlyName; FreeSpace=$v.SizeRemaining; Capacity=$v.Size } | ConvertTo-Json -Compress }"`
-        const { stdout } = await execAsync(cmd, { timeout: 4000 })
-        if (stdout && stdout.trim().startsWith('{')) {
-          const parsed = JSON.parse(stdout.trim())
-          fileSystem = (parsed.FileSystem || 'NTFS').toUpperCase()
-          driveType = parsed.DriveType || 'Fixed'
-          const rawBus = (parsed.BusType || '').toUpperCase()
-          modelName = parsed.Model || 'Depolama Sürücüsü'
-          const rawUsbVer = parsed.UsbVersion || ''
-
-          if (rawBus.includes('NVME')) busType = 'NVMe'
-          else if (rawBus.includes('USB')) busType = 'USB'
-          else if (rawBus.includes('SAS')) busType = 'SAS'
-          else if (rawBus.includes('SATA')) busType = 'SATA'
-          else if (rawBus.includes('SCSI') || rawBus.includes('RAID')) busType = 'RAID'
-          else busType = 'Unknown'
-
-          if (rawUsbVer === 'USB 2.0') usbVersion = 'USB 2.0'
-          else if (rawUsbVer === 'USB 3.0+') usbVersion = 'USB 3.0+'
-          else if (busType === 'USB') usbVersion = 'USB'
-
-          isUsb = busType === 'USB' || driveType === 'Removable'
-          isRemovable = driveType === 'Removable' || isUsb
-          const isExFat = fileSystem.includes('EXFAT')
-          isFat32 = !isExFat && (fileSystem.includes('FAT32') || fileSystem.includes('FAT16') || fileSystem === 'FAT')
-
-          if (parsed.FreeSpace) freeBytes = Number(parsed.FreeSpace)
-          if (parsed.Capacity) totalBytes = Number(parsed.Capacity)
-
-          volumeCache.set(driveLetter, {
-            info: { fileSystem, driveType, busType, usbVersion, modelName, isRemovable, isUsb, isFat32 },
-            timestamp: now
-          })
+        const fsNameBuf = Buffer.alloc(512)
+        const volNameBuf = Buffer.alloc(512)
+        const serial = [0], maxComp = [0], flags = [0]
+        const volOk = win32.GetVolumeInformationW(rootDrive, volNameBuf, 256, serial, maxComp, flags, fsNameBuf, 256)
+        if (volOk) {
+          const rawFs = fsNameBuf.toString('utf16le').replace(/\0.*$/g, '').trim().toUpperCase()
+          if (rawFs) fileSystem = rawFs
         }
       } catch {
         // fallback
       }
+
+      // B. Win32 Native: GetDiskFreeSpaceExW (Fast 64-bit precise free space)
+      try {
+        const freeCaller = [0n]
+        const total = [0n]
+        const totalFree = [0n]
+        const spaceOk = win32.GetDiskFreeSpaceExW(rootDrive, freeCaller, total, totalFree)
+        if (spaceOk) {
+          if (Number(freeCaller[0]) > 0) freeBytes = Number(freeCaller[0])
+          if (Number(total[0]) > 0) totalBytes = Number(total[0])
+        }
+      } catch {
+        // fallback
+      }
+
+      // C. Win32 Native: GetDriveTypeW (DRIVE_FIXED=3, DRIVE_REMOVABLE=2, DRIVE_REMOTE=4)
+      try {
+        const dType = win32.GetDriveTypeW(rootDrive)
+        if (dType === 2) {
+          driveType = 'Removable'
+          isRemovable = true
+          isUsb = true
+        } else if (dType === 3) {
+          driveType = 'Fixed'
+        } else if (dType === 4) {
+          driveType = 'Network'
+        } else if (dType === 5) {
+          driveType = 'CD-ROM'
+        }
+      } catch {
+        // fallback
+      }
+
+      // D. Win32 Native: DeviceIoControl (IOCTL_STORAGE_QUERY_PROPERTY -> BusType & Model Name)
+      try {
+        const hVolume = win32.CreateFileW(`\\\\.\\${driveLetter}:`, 0, 7, null, 3, 0, null)
+        if (hVolume && hVolume !== -1 && hVolume !== 0) {
+          const inBuf = Buffer.alloc(12)
+          inBuf.writeUInt32LE(0, 0) // StorageDeviceProperty
+          inBuf.writeUInt32LE(0, 4) // PropertyStandardQuery
+
+          const outBuf = Buffer.alloc(2048)
+          const bytesReturned = [0]
+          const IOCTL_STORAGE_QUERY_PROPERTY = 0x002D1400
+
+          const ioOk = win32.DeviceIoControl(hVolume, IOCTL_STORAGE_QUERY_PROPERTY, inBuf, 12, outBuf, 2048, bytesReturned, null)
+          win32.CloseHandle(hVolume)
+
+          if (ioOk && bytesReturned[0] >= 32) {
+            const rawBusType = outBuf.readInt32LE(28)
+            const vendorOffset = outBuf.readUInt32LE(12)
+            const prodOffset = outBuf.readUInt32LE(16)
+
+            let vendor = ''
+            let prod = ''
+            if (vendorOffset > 0 && vendorOffset < bytesReturned[0]) {
+              vendor = outBuf.toString('ascii', vendorOffset, outBuf.indexOf(0, vendorOffset)).trim()
+            }
+            if (prodOffset > 0 && prodOffset < bytesReturned[0]) {
+              prod = outBuf.toString('ascii', prodOffset, outBuf.indexOf(0, prodOffset)).trim()
+            }
+
+            const fullName = [vendor, prod].filter(Boolean).join(' ').trim()
+            if (fullName) modelName = fullName
+
+            // Map Win32 STORAGE_BUS_TYPE enum
+            // 0x11 = BusTypeNvme, 0x07 = BusTypeUsb, 0x0B = BusTypeSata, 0x0A = BusTypeSas, 0x08 = BusTypeRaid, 0x01 = BusTypeScsi
+            switch (rawBusType) {
+              case 0x11:
+                busType = 'NVMe'
+                break
+              case 0x07:
+                busType = 'USB'
+                isUsb = true
+                isRemovable = true
+                break
+              case 0x0A:
+                busType = 'SAS'
+                break
+              case 0x0B:
+                busType = 'SATA'
+                break
+              case 0x08:
+              case 0x01:
+                busType = 'RAID'
+                break
+              default:
+                if (isRemovable) busType = 'USB'
+                break
+            }
+          }
+        }
+      } catch {
+        // fallback
+      }
+
+      // E. Check FAT32 vs exFAT
+      const isExFat = fileSystem.includes('EXFAT')
+      isFat32 = !isExFat && (fileSystem.includes('FAT32') || fileSystem.includes('FAT16') || fileSystem === 'FAT')
     }
   } else {
     driveLetter = '/'
@@ -124,31 +252,19 @@ export async function inspectPath(folderPath: string): Promise<DiskInfo> {
   let recommendedFlushThreshold = 1024 * 1024 * 4 // 4MB
   let profileLabel = 'SSD / Dahili Sürücü'
 
-  if (usbVersion === 'USB 2.0') {
-    // USB 2.0 (Cruzer Blade etc.): max 30-35 MB/s throughput
-    recommendedConnections = 2
-    recommendedFlushThreshold = 1024 * 1024 * 4
-    profileLabel = `USB 2.0 (${modelName}) • Max ~30 MB/s`
-    if (!warning) {
-      warning = `Bilgi: Sürücü USB 2.0 portuna bağlı (${modelName}). Darboğazı ve donmayı önlemek için 2x akış önerilir.`
-    }
-  } else if (usbVersion === 'USB 3.0+' || isUsb) {
-    // USB 3.0 / 3.1 / 3.2 SuperSpeed (100 - 500+ MB/s)
-    recommendedConnections = 4
-    recommendedFlushThreshold = 1024 * 1024 * 4
-    profileLabel = `USB 3.0+ (${modelName})`
-  } else if (busType === 'NVMe') {
-    // Ultra-Fast NVMe SSD (Samsung 990 Pro etc.)
+  if (busType === 'NVMe') {
     recommendedConnections = 16
     recommendedFlushThreshold = 1024 * 1024 * 4
     profileLabel = `NVMe SSD (${modelName}) • Ultra Hızlı`
+  } else if (isUsb || busType === 'USB') {
+    recommendedConnections = 4
+    recommendedFlushThreshold = 1024 * 1024 * 4
+    profileLabel = `USB Sürücü (${modelName})`
   } else if (busType === 'SAS' || busType === 'RAID') {
-    // Enterprise SAS / RAID Array
     recommendedConnections = 8
     recommendedFlushThreshold = 1024 * 1024 * 4
     profileLabel = `Kurumsal SAS/RAID (${modelName})`
   } else {
-    // Standard SATA SSD / Fixed Drive
     recommendedConnections = 8
     recommendedFlushThreshold = 1024 * 1024 * 4
     profileLabel = `${busType !== 'Unknown' ? busType : 'Sabit'} Disk (${modelName})`
@@ -156,9 +272,9 @@ export async function inspectPath(folderPath: string): Promise<DiskInfo> {
 
   const freeGB = (freeBytes / (1024 * 1024 * 1024)).toFixed(2)
   const totalGB = (totalBytes / (1024 * 1024 * 1024)).toFixed(2)
-  const hardwareBadge = usbVersion || busType
+  const inspectDurationMs = Number((performance.now() - startTime).toFixed(3))
 
-  console.log(`💾 [DiskInspector] Path: "${resolved}" | Sürücü: ${driveLetter}: (${modelName}) | Arayüz: ${hardwareBadge} | Dosya Sistemi: ${fileSystem} | Tip: ${driveType} | Boş Alan: ${freeGB} GB / ${totalGB} GB | Önerilen Akış: ${recommendedConnections}x (${profileLabel})`)
+  console.log(`⚡ [Native Win32 DiskInspector (${inspectDurationMs}ms)] Path: "${resolved}" | Sürücü: ${driveLetter}: (${modelName}) | Arayüz: ${busType} | Dosya Sistemi: ${fileSystem} | Tip: ${driveType} | Boş Alan: ${freeGB} GB / ${totalGB} GB | Önerilen Akış: ${recommendedConnections}x`)
   if (warning) {
     console.warn(`⚠️ [DiskInspector Uyarısı] ${warning}`)
   }
@@ -179,6 +295,7 @@ export async function inspectPath(folderPath: string): Promise<DiskInfo> {
     recommendedConnections,
     recommendedFlushThreshold,
     profileLabel,
+    inspectDurationMs,
     warning
   }
 }
