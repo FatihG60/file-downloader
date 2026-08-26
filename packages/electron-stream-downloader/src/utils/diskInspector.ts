@@ -63,8 +63,8 @@ export async function inspectPath(folderPath: string): Promise<DiskInfo> {
           const parsed = JSON.parse(stdout.trim())
           fileSystem = (parsed.FileSystem || parsed.FileSystemType || 'NTFS').toUpperCase()
           driveType = parsed.DriveType || 'Fixed'
-          isRemovable = driveType === 'Removable'
-          isFat32 = fileSystem.includes('FAT32') || fileSystem.includes('FAT')
+          const isExFat = fileSystem.includes('EXFAT')
+          isFat32 = !isExFat && (fileSystem.includes('FAT32') || fileSystem.includes('FAT16') || fileSystem === 'FAT')
           if (parsed.SizeRemaining) freeBytes = Number(parsed.SizeRemaining)
           if (parsed.Size) totalBytes = Number(parsed.Size)
 
