@@ -55,6 +55,7 @@ export interface DownloadMetaFile {
 export interface DownloaderIpcApi {
   selectDirectory: () => Promise<string | null>
   getDefaultDownloadPath: () => Promise<string>
+  inspectPath: (folderPath: string) => Promise<any>
   startDownload: (params: StartDownloadParams) => Promise<DownloadProgress>
   pauseDownload: (id: string) => Promise<boolean>
   resumeDownload: (id: string) => Promise<boolean>

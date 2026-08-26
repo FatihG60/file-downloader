@@ -1,5 +1,6 @@
-import React, { useState } from 'react'
-import { FolderOpen, DownloadCloud, Link2, Zap } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import { FolderOpen, DownloadCloud, Link2, Zap, HardDrive, AlertTriangle } from 'lucide-react'
+import { formatBytes } from '../utils/formatters'
 
 interface DownloadFormProps {
   onStartDownload: (
@@ -12,10 +13,11 @@ interface DownloadFormProps {
 }
 
 const CONNECTION_OPTIONS = [
+  { value: 0, label: '⚡ Otomatik (Akıllı Disk Algılama - Önerilen)' },
   { value: 1, label: '1x (Tek Akış)' },
-  { value: 4, label: '4x (Hızlı Paralel)' },
-  { value: 8, label: '8x (Turbo - Önerilen)' },
-  { value: 16, label: '16x (Ultra Turbo)' }
+  { value: 4, label: '4x (Hızlı Paralel / USB)' },
+  { value: 8, label: '8x (Turbo - SSD/NVMe)' },
+  { value: 16, label: '16x (Ultra Turbo - Gigabit/NVMe)' }
 ]
 
 export const DownloadForm: React.FC<DownloadFormProps> = ({
@@ -25,14 +27,23 @@ export const DownloadForm: React.FC<DownloadFormProps> = ({
   const [url, setUrl] = useState('')
   const [destinationFolder, setDestinationFolder] = useState(defaultDestination)
   const [customFileName, setCustomFileName] = useState('')
-  const [connections, setConnections] = useState<number>(8)
+  const [connections, setConnections] = useState<number>(0) // 0 = Auto Smart Profile
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [diskInfo, setDiskInfo] = useState<any>(null)
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!destinationFolder && defaultDestination) {
       setDestinationFolder(defaultDestination)
     }
   }, [defaultDestination, destinationFolder])
+
+  useEffect(() => {
+    if (destinationFolder && window.electronAPI?.inspectPath) {
+      window.electronAPI.inspectPath(destinationFolder).then((info) => {
+        if (info) setDiskInfo(info)
+      }).catch(() => {})
+    }
+  }, [destinationFolder])
 
   const handleBrowseFolder = async () => {
     try {
@@ -91,9 +102,19 @@ export const DownloadForm: React.FC<DownloadFormProps> = ({
 
         <div className="form-row">
           <div className="form-group flex-1">
-            <label htmlFor="dest-folder">
-              <FolderOpen size={15} /> Kaydedilecek Dizin
-            </label>
+            <div className="label-with-disk-info">
+              <label htmlFor="dest-folder">
+                <FolderOpen size={15} /> Kaydedilecek Dizin
+              </label>
+              {diskInfo && (
+                <span className={`disk-badge ${diskInfo.isFat32 ? 'disk-badge-danger' : 'disk-badge-info'}`}>
+                  <HardDrive size={12} />
+                  <span>
+                    {diskInfo.driveLetter}: ({diskInfo.fileSystem}) • {formatBytes(diskInfo.freeBytes)} Boş
+                  </span>
+                </span>
+              )}
+            </div>
             <div className="input-with-button">
               <input
                 id="dest-folder"
@@ -128,9 +149,9 @@ export const DownloadForm: React.FC<DownloadFormProps> = ({
             />
           </div>
 
-          <div className="form-group flex-none" style={{ minWidth: '200px' }}>
+          <div className="form-group flex-none" style={{ minWidth: '240px' }}>
             <label htmlFor="connections-select">
-              <Zap size={15} style={{ color: 'var(--accent-yellow)' }} /> Bağlantı Sayısı
+              <Zap size={15} style={{ color: 'var(--accent-yellow)' }} /> Paralel Akış Modu
             </label>
             <select
               id="connections-select"
@@ -146,6 +167,13 @@ export const DownloadForm: React.FC<DownloadFormProps> = ({
             </select>
           </div>
         </div>
+
+        {diskInfo?.warning && (
+          <div className="disk-warning-box">
+            <AlertTriangle size={16} className="warning-icon" />
+            <span>{diskInfo.warning}</span>
+          </div>
+        )}
 
         <div className="form-footer-clean">
           <button

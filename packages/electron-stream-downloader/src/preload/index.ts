@@ -8,6 +8,9 @@ export const downloaderPreloadApi: DownloaderIpcApi = {
   getDefaultDownloadPath: (): Promise<string> => {
     return ipcRenderer.invoke('system:get-default-download-path')
   },
+  inspectPath: (folderPath: string): Promise<any> => {
+    return ipcRenderer.invoke('system:inspect-path', folderPath)
+  },
   startDownload: (params: StartDownloadParams): Promise<DownloadProgress> => {
     return ipcRenderer.invoke('download:start', params)
   },

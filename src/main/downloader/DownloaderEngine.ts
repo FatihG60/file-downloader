@@ -5,6 +5,7 @@ import https from 'node:https'
 import { URL } from 'node:url'
 import EventEmitter from 'node:events'
 import { DownloadProgress, DownloadStatus, ChunkState, DownloadMetaFile } from './types'
+import { inspectPath } from '../utils/diskInspector'
 
 // Reusable persistent HTTP / HTTPS agents for high socket reuse & throughput
 const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 64, maxFreeSockets: 32, timeout: 60000 })
@@ -133,7 +134,27 @@ export class DownloaderEngine extends EventEmitter {
         this.metaFilePath = `${this.filePath}.part.meta.json`
       }
 
-      // Step 2: Choose Strategy (Multi-Stream Turbo vs Single Stream)
+      // Step 2: Smart Adaptive Disk Inspection & Pre-download Safety Checks
+      const diskInfo = await inspectPath(this.destinationFolder)
+
+      // FAT32 4GB Barrier Check
+      if (diskInfo.isFat32 && this.totalBytes > 4 * 1024 * 1024 * 1024) {
+        throw new Error(`FAT32 Sınırı: Seçilen ${diskInfo.driveLetter}: sürücüsü FAT32 formatında olduğu için 4GB'tan büyük dosya kabul etmez. Lütfen exFAT veya NTFS formatlı bir sürücü seçin.`)
+      }
+
+      // Insufficient Disk Space Check
+      if (diskInfo.freeBytes > 0 && this.totalBytes > 0 && diskInfo.freeBytes < this.totalBytes) {
+        const reqGB = (this.totalBytes / (1024 * 1024 * 1024)).toFixed(2)
+        const freeGB = (diskInfo.freeBytes / (1024 * 1024 * 1024)).toFixed(2)
+        throw new Error(`Yetersiz Disk Alanı: ${diskInfo.driveLetter}: sürücüsünde yeterli alan yok. Gerekli: ${reqGB} GB, Mevcut: ${freeGB} GB.`)
+      }
+
+      // Smart Adaptive Profile (Auto Concurrency)
+      if (this.connections === 0) {
+        this.connections = diskInfo.recommendedConnections
+      }
+
+      // Step 3: Choose Strategy (Multi-Stream Turbo vs Single Stream)
       if (this.resumable && this.totalBytes > 0 && this.connections > 1) {
         await this.startMultiStreamDownload(probeResult.finalUrl)
       } else {
@@ -424,6 +445,7 @@ export class DownloaderEngine extends EventEmitter {
 
         let pendingBuffers: Buffer[] = []
         let pendingBytes = 0
+        let isSocketPaused = false
         const FLUSH_THRESHOLD = 1024 * 1024 * 4 // 4MB high-throughput batch buffer for Gigabit networks (100MB/s+)
 
         const flushBuffer = () => {
@@ -437,6 +459,12 @@ export class DownloaderEngine extends EventEmitter {
             this.downloadedBytes += merged.length
             pendingBuffers = []
             pendingBytes = 0
+
+            // Resume socket if it was paused due to slow disk backpressure
+            if (isSocketPaused) {
+              isSocketPaused = false
+              res.resume()
+            }
           } catch (writeErr: any) {
             req.destroy()
             chunk.status = 'error'
@@ -448,6 +476,12 @@ export class DownloaderEngine extends EventEmitter {
           if (this.isAborted || this.fileDescriptor === null) return
           pendingBuffers.push(buf)
           pendingBytes += buf.length
+
+          // Backpressure: If disk is slower than Gigabit network, pause stream to prevent RAM explosion
+          if (pendingBytes >= FLUSH_THRESHOLD * 2 && !isSocketPaused) {
+            isSocketPaused = true
+            res.pause()
+          }
 
           if (pendingBytes >= FLUSH_THRESHOLD) {
             try {

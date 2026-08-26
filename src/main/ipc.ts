@@ -3,6 +3,8 @@ import { downloadManager } from './downloader/DownloadManager'
 import { StartDownloadParams } from './downloader/types'
 import fs from 'node:fs'
 
+import { inspectPath } from './utils/diskInspector'
+
 export function registerIpcHandlers(mainWindow: BrowserWindow) {
   downloadManager.setMainWindow(mainWindow)
 
@@ -24,6 +26,11 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   // Get default downloads directory
   ipcMain.handle('system:get-default-download-path', () => {
     return app.getPath('downloads')
+  })
+
+  // Inspect drive / storage path (FAT32, NTFS, free space, recommended profile)
+  ipcMain.handle('system:inspect-path', async (_event, folderPath: string) => {
+    return inspectPath(folderPath || app.getPath('downloads'))
   })
 
   // Start download

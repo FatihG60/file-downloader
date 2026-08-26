@@ -1,15 +1,22 @@
 # 📋 Gelecek Özellikler ve Geliştirme Yol Haritası (Roadmap)
 
-Bu döküman, **File Downloader** projesine ilerleyen sürümlerde eklenmesi planlanan yüksek katma değerli özellikleri ve geliştirme maddelerini içerir.
+Bu döküman, **File Downloader** projesine eklenen ve ilerleyen sürümlerde eklenmesi planlanan yüksek katma değerli özellikleri ve geliştirme maddelerini içerir.
 
 ---
 
 ## 1. 🚀 Disk & Performans İyileştirmeleri *(500GB+ İçin Kritik)*
 
-- [ ] **Boş Disk Alanı Kontrolü (Disk Space Pre-check):**
-  - 500GB indirme başlamadan önce seçilen sürücüde (örn: `D:\`) yeterli boş alan olup olmadığı Node.js `fs.statfs` ile kontrol edilir. Alan yetersizse kullanıcı anında uyarılır.
-- [ ] **Disk Parçalanmasını Önleme (File Pre-allocation):**
-  - 500GB gibi devasa dosyalarda 8-16 parçalı yazım yaparken diskin parçalanmasını (fragmentation) ve I/O darboğazını önlemek için dosya boyutu baştan rezerve edilebilir.
+- [x] **Akıllı Otomatik Disk Algılama (Smart Adaptive Storage Profile):**
+  - Seçilen dizinin hangi sürücüde olduğunu (örn: `C:`, `D:`, `E:`), dosya sistemini (`NTFS`, `exFAT`, `FAT32`) ve sürücü türünü (`Fixed SSD/NVMe`, `Removable USB`) anında tespit eder.
+  - Hedef ortama göre akış sayısını ve bellek tamponunu otomatik optimize eder.
+- [x] **Boş Disk Alanı Ön Kontrolü (Disk Space Pre-check):**
+  - İndirme başlamadan önce seçilen sürücüdeki boş alan kontrol edilir. Alan yetersizse kullanıcı anında uyarılır.
+- [x] **FAT32 4GB Sınır Koruması:**
+  - Seçilen sürücü FAT32 formatındaysa ve dosya 4GB'tan büyükse indirme başlamadan önce kullanıcıyı uyararak dosyanın bozulmasını önler.
+- [x] **Disk Parçalanmasını Önleme (File Pre-allocation - `ftruncate`):**
+  - 500GB gibi devasa dosyalarda Windows NTFS metadata kilitlemesini ve parçalanmayı önlemek için dosya boyutu baştan rezerve edilir.
+- [x] **Gigabit Ağ Akış Kontrolü (Active Stream Backpressure):**
+  - Gigabit ağ (125 MB/s) yavaş bir USB diske yazarken RAM'in şişmesini önlemek için TCP soketini otomatik duraklatıp (`pause`) devam ettirir (`resume`).
 - [ ] **Bant Genişliği / Hız Sınırlayıcı (Speed Limiter):**
   - Kullanıcının ev/ofis internetini tamamen kilitlememesi için arayüzden maksimum indirme hızı sınırı (örn: `25 MB/s`, `50 MB/s`, `Sınırsız`) seçebilme imkânı.
 

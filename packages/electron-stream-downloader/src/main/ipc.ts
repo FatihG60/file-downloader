@@ -3,6 +3,8 @@ import { downloadManager } from './DownloadManager.js'
 import { StartDownloadParams } from '../types.js'
 import fs from 'node:fs'
 
+import { inspectPath } from '../utils/diskInspector.js'
+
 export interface RegisterIpcOptions {
   defaultDownloadPath?: string
 }
@@ -31,6 +33,10 @@ export function registerLargeDownloaderIpc(
 
   ipcMain.handle('system:get-default-download-path', () => {
     return defaultPath
+  })
+
+  ipcMain.handle('system:inspect-path', async (_event, folderPath: string) => {
+    return inspectPath(folderPath || defaultPath)
   })
 
   ipcMain.handle('download:start', (_event, params: StartDownloadParams) => {
