@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { FolderOpen, DownloadCloud, Link2, Zap, HardDrive, AlertTriangle } from 'lucide-react'
+import { FolderOpen, DownloadCloud, Link2, HardDrive, AlertTriangle } from 'lucide-react'
 import { formatBytes } from '../utils/formatters'
 
 interface DownloadFormProps {
@@ -12,14 +12,6 @@ interface DownloadFormProps {
   defaultDestination: string
 }
 
-const CONNECTION_OPTIONS = [
-  { value: 0, label: '⚡ Otomatik (Akıllı Disk Algılama - Önerilen)' },
-  { value: 1, label: '1x (Tek Akış)' },
-  { value: 4, label: '4x (Hızlı Paralel / USB)' },
-  { value: 8, label: '8x (Turbo - SSD/NVMe)' },
-  { value: 16, label: '16x (Ultra Turbo - Gigabit/NVMe)' }
-]
-
 export const DownloadForm: React.FC<DownloadFormProps> = ({
   onStartDownload,
   defaultDestination,
@@ -27,7 +19,6 @@ export const DownloadForm: React.FC<DownloadFormProps> = ({
   const [url, setUrl] = useState('')
   const [destinationFolder, setDestinationFolder] = useState(defaultDestination)
   const [customFileName, setCustomFileName] = useState('')
-  const [connections, setConnections] = useState<number>(0) // 0 = Auto Smart Profile
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [diskInfo, setDiskInfo] = useState<any>(null)
 
@@ -66,11 +57,12 @@ export const DownloadForm: React.FC<DownloadFormProps> = ({
     if (!url.trim()) return
 
     setIsSubmitting(true)
+    // connections = 0 triggers automatic Smart Adaptive Hardware Profiling
     onStartDownload(
       url.trim(),
       destinationFolder,
       customFileName.trim() || undefined,
-      connections
+      0
     )
     setUrl('')
     setCustomFileName('')
@@ -85,7 +77,7 @@ export const DownloadForm: React.FC<DownloadFormProps> = ({
         </div>
         <div>
           <h2>Dosya İndir</h2>
-          <p className="subtitle">İndirme bağlantısını ve hedef klasörü belirtin.</p>
+          <p className="subtitle">İndirme bağlantısını ve hedef klasörü belirtin. Donanım hız profili otomatik ayarlanır.</p>
         </div>
       </div>
 
@@ -152,24 +144,6 @@ export const DownloadForm: React.FC<DownloadFormProps> = ({
               onChange={(e) => setCustomFileName(e.target.value)}
               className="input-field"
             />
-          </div>
-
-          <div className="form-group flex-none" style={{ minWidth: '240px' }}>
-            <label htmlFor="connections-select">
-              <Zap size={15} style={{ color: 'var(--accent-yellow)' }} /> Paralel Akış Modu
-            </label>
-            <select
-              id="connections-select"
-              value={connections}
-              onChange={(e) => setConnections(Number(e.target.value))}
-              className="input-field select-field"
-            >
-              {CONNECTION_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
           </div>
         </div>
 
