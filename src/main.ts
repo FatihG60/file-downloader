@@ -5,52 +5,74 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { createMD5 } from 'hash-wasm';
-import { ResumableDownloader } from './resumableDownloader';
+import { ResumableDownloadQueue, type QueueItemInput } from './resumableDownloadQueue';
 
 let mainWindow: BrowserWindow | null = null;
-let activeAbortController: AbortController | null = null;
-let isDownloading = false;
+let downloadQueue: ResumableDownloadQueue | null = null;
 
-// Yerel Sentetik Test Sunucusu (128 MB deterministik veri, HTTP 206 Range + ETag destekli)
-let testServerUrl = '';
-let testServerMd5 = '';
-const TEST_FILE_SIZE = 128 * 1024 * 1024; // 128 MB
+interface SyntheticTestFile {
+  name: string;
+  sizeMB: number;
+  seed: number;
+  md5: string;
+}
 
-async function startLocalTestServer(): Promise<{ url: string; expectedMd5: string; defaultTarget: string }> {
-  if (testServerUrl) {
+let testServerPort = 0;
+const syntheticFiles: SyntheticTestFile[] = [
+  { name: 'dataset-part-01.bin', sizeMB: 48, seed: 17, md5: '' },
+  { name: 'dataset-part-02.bin', sizeMB: 64, seed: 53, md5: '' },
+  { name: 'dataset-part-03.bin', sizeMB: 48, seed: 89, md5: '' }
+];
+
+async function ensureLocalTestServer(): Promise<{
+  files: Array<{ url: string; fileName: string; expectedMd5: string; sizeMB: number }>;
+  defaultFolder: string;
+}> {
+  const defaultFolder = path.join(os.homedir(), 'Downloads');
+
+  if (testServerPort > 0) {
     return {
-      url: testServerUrl,
-      expectedMd5: testServerMd5,
-      defaultTarget: path.join(os.homedir(), 'Downloads', 'synthetic-test-128mb.bin')
+      files: syntheticFiles.map((f) => ({
+        url: `http://127.0.0.1:${testServerPort}/${f.name}`,
+        fileName: f.name,
+        expectedMd5: f.md5,
+        sizeMB: f.sizeMB
+      })),
+      defaultFolder
     };
   }
 
-  // 1 MB'lık deterministik desen bloğu oluştur ve 128 kez tekrarlandığındaki MD5'ini hesapla
-  const block1MB = Buffer.allocUnsafe(1024 * 1024);
-  for (let i = 0; i < block1MB.length; i++) {
-    block1MB[i] = (i * 31 + 17) & 0xff;
-  }
+  // Her sentetik dosya için 1 MB'lık deterministik blok üzerinden gerçek MD5 özetini hesapla
+  for (const fileSpec of syntheticFiles) {
+    const block1MB = Buffer.allocUnsafe(1024 * 1024);
+    for (let i = 0; i < block1MB.length; i++) {
+      block1MB[i] = (i * 31 + fileSpec.seed) & 0xff;
+    }
 
-  const hasher = await createMD5();
-  hasher.init();
-  for (let m = 0; m < 128; m++) {
-    hasher.update(block1MB);
+    const hasher = await createMD5();
+    hasher.init();
+    for (let m = 0; m < fileSpec.sizeMB; m++) {
+      hasher.update(block1MB);
+    }
+    fileSpec.md5 = hasher.digest('hex');
   }
-  testServerMd5 = hasher.digest('hex');
 
   const server = http.createServer((req, res) => {
-    const etag = `"synthetic-128mb-${testServerMd5.slice(0, 12)}"`;
-    const rangeHeader = req.headers.range;
+    const reqPath = (req.url || '/').split('?')[0].replace(/^\//, '');
+    const spec = syntheticFiles.find((f) => f.name === reqPath) || syntheticFiles[0];
+    const totalSize = spec.sizeMB * 1024 * 1024;
+    const etag = `"synthetic-${spec.name}-${spec.md5.slice(0, 10)}"`;
 
+    const rangeHeader = req.headers.range;
     let start = 0;
-    let end = TEST_FILE_SIZE - 1;
+    let end = totalSize - 1;
     let statusCode = 200;
 
     if (rangeHeader && rangeHeader.startsWith('bytes=')) {
       const parts = rangeHeader.replace('bytes=', '').split('-');
       start = parseInt(parts[0], 10);
       if (parts[1] && parts[1].length > 0) {
-        end = Math.min(TEST_FILE_SIZE - 1, parseInt(parts[1], 10));
+        end = Math.min(totalSize - 1, parseInt(parts[1], 10));
       }
       statusCode = 206;
     }
@@ -64,12 +86,11 @@ async function startLocalTestServer(): Promise<{ url: string; expectedMd5: strin
     };
 
     if (statusCode === 206) {
-      headers['Content-Range'] = `bytes ${start}-${end}/${TEST_FILE_SIZE}`;
+      headers['Content-Range'] = `bytes ${start}-${end}/${totalSize}`;
     }
 
     res.writeHead(statusCode, headers);
 
-    // İlerlemeyi ve Duraklat/Devam Et özelliğini rahatça gözlemlemek için kontrollü akış (~24 MB/s toplam)
     let currentOffset = start;
     const chunkStep = 256 * 1024; // 256 KB dilimler
 
@@ -85,7 +106,7 @@ async function startLocalTestServer(): Promise<{ url: string; expectedMd5: strin
       const outBuf = Buffer.allocUnsafe(sendLen);
 
       for (let i = 0; i < sendLen; i++) {
-        outBuf[i] = ((currentOffset + i) * 31 + 17) & 0xff;
+        outBuf[i] = ((currentOffset + i) * 31 + spec.seed) & 0xff;
       }
 
       currentOffset += sendLen;
@@ -95,7 +116,7 @@ async function startLocalTestServer(): Promise<{ url: string; expectedMd5: strin
         clearInterval(timer);
         res.end();
       }
-    }, 35);
+    }, 28);
 
     req.on('close', () => clearInterval(timer));
   });
@@ -105,22 +126,86 @@ async function startLocalTestServer(): Promise<{ url: string; expectedMd5: strin
   });
 
   const addr = server.address();
-  const port = typeof addr === 'object' && addr ? addr.port : 0;
-  testServerUrl = `http://127.0.0.1:${port}/synthetic-test-128mb.bin`;
+  testServerPort = typeof addr === 'object' && addr ? addr.port : 0;
 
   return {
-    url: testServerUrl,
-    expectedMd5: testServerMd5,
-    defaultTarget: path.join(os.homedir(), 'Downloads', 'synthetic-test-128mb.bin')
+    files: syntheticFiles.map((f) => ({
+      url: `http://127.0.0.1:${testServerPort}/${f.name}`,
+      fileName: f.name,
+      expectedMd5: f.md5,
+      sizeMB: f.sizeMB
+    })),
+    defaultFolder
   };
+}
+
+function initQueueManager(): ResumableDownloadQueue {
+  if (downloadQueue) return downloadQueue;
+
+  let speedWindowStartMs = Date.now();
+  let speedWindowStartBytes: number | null = null;
+  let lastTrackedItemId: string | null = null;
+  let currentSpeedBps = 0;
+
+  downloadQueue = new ResumableDownloadQueue({
+    targetFolder: path.join(os.homedir(), 'Downloads'),
+    concurrency: 4,
+    chunkSizeBytes: 4 * 1024 * 1024,
+    saveIntervalBytes: 16 * 1024 * 1024,
+    onLog: (msg) => {
+      mainWindow?.webContents.send('download:log', msg);
+    },
+    onQueueUpdated: (items, activeItemId) => {
+      if (activeItemId !== lastTrackedItemId) {
+        lastTrackedItemId = activeItemId;
+        speedWindowStartBytes = null;
+        currentSpeedBps = 0;
+      }
+      mainWindow?.webContents.send('queue:updated', {
+        items,
+        activeItemId,
+        isRunning: downloadQueue?.isRunning() ?? false
+      });
+    },
+    onActiveProgress: (item, prog) => {
+      const now = Date.now();
+      if (speedWindowStartBytes === null) {
+        speedWindowStartBytes = prog.downloadedBytes;
+        speedWindowStartMs = now;
+      } else {
+        const elapsedSec = (now - speedWindowStartMs) / 1000;
+        if (elapsedSec >= 0.35) {
+          const deltaBytes = Math.max(0, prog.downloadedBytes - speedWindowStartBytes);
+          const instantSpeed = deltaBytes / elapsedSec;
+          currentSpeedBps =
+            currentSpeedBps === 0 ? instantSpeed : currentSpeedBps * 0.65 + instantSpeed * 0.35;
+          speedWindowStartBytes = prog.downloadedBytes;
+          speedWindowStartMs = now;
+        }
+      }
+
+      const remainingBytes = Math.max(0, prog.totalBytes - prog.downloadedBytes);
+      const etaSeconds =
+        currentSpeedBps > 0 && prog.totalBytes > 0 ? Math.ceil(remainingBytes / currentSpeedBps) : null;
+
+      mainWindow?.webContents.send('download:progress', {
+        item,
+        ...prog,
+        speedBps: currentSpeedBps,
+        etaSeconds
+      });
+    }
+  });
+
+  return downloadQueue;
 }
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 1120,
-    height: 780,
-    minWidth: 920,
-    minHeight: 660,
+    width: 1180,
+    height: 820,
+    minWidth: 960,
+    minHeight: 680,
     frame: false,
     show: true,
     backgroundColor: '#0A0B0E',
@@ -134,7 +219,6 @@ function createWindow(): void {
 
   mainWindow.once('ready-to-show', () => {
     if (!mainWindow) return;
-    // Win32 STARTUPINFO SW_HIDE ilk ShowWindow çağrısını ezdiği için ikinci kez çağrılır
     mainWindow.hide();
     mainWindow.show();
     mainWindow.restore();
@@ -152,6 +236,7 @@ function createWindow(): void {
 app.setPath('userData', path.join(os.tmpdir(), 'resumable-md5-downloader-data'));
 
 app.whenReady().then(() => {
+  initQueueManager();
   createWindow();
 
   app.on('activate', () => {
@@ -172,29 +257,18 @@ ipcMain.on('window:maximize', () => {
 });
 ipcMain.on('window:close', () => mainWindow?.close());
 
-// Hedef Dosya Seçici
-ipcMain.handle('download:pick-target', async (_event, defaultUrl: string, currentPath: string) => {
+// Hedef Klasör Seçici
+ipcMain.handle('download:pick-folder', async (_event, currentFolder: string) => {
   if (!mainWindow) return null;
-
-  let suggestedName = 'large-download.bin';
-  try {
-    if (defaultUrl) {
-      const parsed = new URL(defaultUrl);
-      const base = path.basename(parsed.pathname);
-      if (base && base !== '/') suggestedName = decodeURIComponent(base);
-    }
-  } catch {
-    // URL geçersizse varsayılan isim
-  }
-
-  const defaultPath = currentPath || path.join(os.homedir(), 'Downloads', suggestedName);
-  const result = await dialog.showSaveDialog(mainWindow, {
-    title: 'İndirilecek Hedef Dosyayı Seçin',
+  const defaultPath = currentFolder || path.join(os.homedir(), 'Downloads');
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'İndirilecek Hedef Klasörü Seçin (USB Disk veya Yerel Klasör)',
     defaultPath,
-    buttonLabel: 'Hedef Olarak Seç'
+    properties: ['openDirectory', 'createDirectory'],
+    buttonLabel: 'Klasörü Seç'
   });
 
-  return result.canceled ? null : result.filePath;
+  return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
 });
 
 // Klasörde Göster
@@ -202,7 +276,12 @@ ipcMain.handle('download:open-folder', async (_event, targetPath: string) => {
   if (!targetPath) return;
   const resolved = path.resolve(targetPath);
   if (fs.existsSync(resolved)) {
-    shell.showItemInFolder(resolved);
+    const stat = await fsp.stat(resolved).catch(() => null);
+    if (stat?.isDirectory()) {
+      await shell.openPath(resolved);
+    } else {
+      shell.showItemInFolder(resolved);
+    }
   } else {
     const dir = path.dirname(resolved);
     if (fs.existsSync(dir)) {
@@ -252,110 +331,100 @@ ipcMain.handle('download:inspect-meta', async (_event, targetPath: string) => {
   }
 });
 
-// İndirme + Meta Dosyalarını Sıfırla
-ipcMain.handle('download:reset-files', async (_event, targetPath: string) => {
-  if (isDownloading || !targetPath) return false;
-  const resolved = path.resolve(targetPath);
-  const metaPath = `${resolved}.meta.json`;
-  if (fs.existsSync(metaPath)) await fsp.unlink(metaPath).catch(() => {});
-  if (fs.existsSync(resolved)) await fsp.unlink(resolved).catch(() => {});
-  return true;
+// Yerel 3'lü Test Kuyruğu Bilgisi
+ipcMain.handle('download:get-test-batch', async () => {
+  return ensureLocalTestServer();
 });
 
-// Yerel Sentetik Test Sunucusu Bilgisi
-ipcMain.handle('download:get-test-endpoint', async () => {
-  return startLocalTestServer();
+// Kuyruk Yönetimi IPC İşleyicileri
+ipcMain.handle('queue:get-state', () => {
+  const q = initQueueManager();
+  return {
+    items: q.getItems(),
+    isRunning: q.isRunning()
+  };
 });
 
-// İndirmeyi Duraklat
-ipcMain.handle('download:pause', async () => {
-  if (activeAbortController) {
-    activeAbortController.abort(new Error('Kullanıcı tarafından duraklatıldı.'));
-    return true;
-  }
-  return false;
-});
-
-// İndirmeyi Başlat / Kaldığı Yerden Devam Et
 ipcMain.handle(
-  'download:start',
+  'queue:enqueue',
   async (
     _event,
     payload: {
-      url: string;
-      targetPath: string;
-      expectedMd5?: string;
+      items: QueueItemInput[];
+      targetFolder: string;
       concurrency: number;
       chunkSizeMB: number;
       saveIntervalMB: number;
     }
   ) => {
-    if (isDownloading) {
-      throw new Error('Halihazırda devam eden bir indirme işlemi var.');
-    }
-
-    isDownloading = true;
-    activeAbortController = new AbortController();
-
-    const startTime = Date.now();
-    let speedWindowStartMs = startTime;
-    let speedWindowStartBytes: number | null = null;
-    let currentSpeedBps = 0;
-
-    const downloader = new ResumableDownloader({
-      url: payload.url,
-      targetPath: payload.targetPath,
-      expectedMd5: payload.expectedMd5,
+    const q = initQueueManager();
+    q.updateSettings({
+      targetFolder: payload.targetFolder,
       concurrency: payload.concurrency,
       chunkSizeBytes: payload.chunkSizeMB * 1024 * 1024,
-      saveIntervalBytes: payload.saveIntervalMB * 1024 * 1024,
-      signal: activeAbortController.signal,
-      onLog: (msg) => {
-        mainWindow?.webContents.send('download:log', msg);
-      },
-      onProgress: (prog) => {
-        const now = Date.now();
-        if (speedWindowStartBytes === null) {
-          speedWindowStartBytes = prog.downloadedBytes;
-          speedWindowStartMs = now;
-        } else {
-          const elapsedSec = (now - speedWindowStartMs) / 1000;
-          if (elapsedSec >= 0.4) {
-            const deltaBytes = Math.max(0, prog.downloadedBytes - speedWindowStartBytes);
-            const instantSpeed = deltaBytes / elapsedSec;
-            currentSpeedBps = currentSpeedBps === 0 ? instantSpeed : currentSpeedBps * 0.65 + instantSpeed * 0.35;
-            speedWindowStartBytes = prog.downloadedBytes;
-            speedWindowStartMs = now;
-          }
-        }
-
-        const remainingBytes = Math.max(0, prog.totalBytes - prog.downloadedBytes);
-        const etaSeconds = currentSpeedBps > 0 && prog.totalBytes > 0 ? Math.ceil(remainingBytes / currentSpeedBps) : null;
-
-        mainWindow?.webContents.send('download:progress', {
-          ...prog,
-          speedBps: currentSpeedBps,
-          etaSeconds
-        });
-      }
+      saveIntervalBytes: payload.saveIntervalMB * 1024 * 1024
     });
-
-    try {
-      const result = await downloader.download();
-      return {
-        status: 'completed' as const,
-        result
-      };
-    } catch (err) {
-      const isPaused = activeAbortController.signal.aborted;
-      const message = err instanceof Error ? err.message : String(err);
-      return {
-        status: isPaused ? ('paused' as const) : ('error' as const),
-        message
-      };
-    } finally {
-      isDownloading = false;
-      activeAbortController = null;
-    }
+    const added = await q.enqueueMany(payload.items);
+    return {
+      addedCount: added.length,
+      items: q.getItems()
+    };
   }
 );
+
+ipcMain.handle(
+  'queue:start',
+  async (
+    _event,
+    payload: {
+      items: QueueItemInput[];
+      targetFolder: string;
+      concurrency: number;
+      chunkSizeMB: number;
+      saveIntervalMB: number;
+    }
+  ) => {
+    const q = initQueueManager();
+    q.updateSettings({
+      targetFolder: payload.targetFolder,
+      concurrency: payload.concurrency,
+      chunkSizeBytes: payload.chunkSizeMB * 1024 * 1024,
+      saveIntervalBytes: payload.saveIntervalMB * 1024 * 1024
+    });
+
+    if (payload.items && payload.items.length > 0) {
+      await q.enqueueMany(payload.items);
+    }
+
+    // Kuyruğu arka planda sırayla çalıştır
+    void q.startQueue();
+    return {
+      started: true,
+      items: q.getItems()
+    };
+  }
+);
+
+ipcMain.handle('queue:pause', async () => {
+  const q = initQueueManager();
+  await q.pauseQueue();
+  return true;
+});
+
+ipcMain.handle('queue:remove-item', async (_event, id: string, deleteFiles: boolean) => {
+  const q = initQueueManager();
+  await q.removeItem(id, deleteFiles);
+  return q.getItems();
+});
+
+ipcMain.handle('queue:clear-completed', async () => {
+  const q = initQueueManager();
+  await q.clearCompleted();
+  return q.getItems();
+});
+
+ipcMain.handle('queue:reset-all', async (_event, deleteFiles: boolean) => {
+  const q = initQueueManager();
+  await q.resetAll(deleteFiles);
+  return q.getItems();
+});

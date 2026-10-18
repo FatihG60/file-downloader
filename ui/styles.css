@@ -37,6 +37,15 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+  background-color: var(--bg-control);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
 /* Başlık Çubuğu */
 .titlebar {
   height: 38px;
@@ -109,13 +118,7 @@ html, body {
   flex-shrink: 0;
 }
 
-.icon-sm {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-}
-
-.icon-xs {
+.icon-sm, .icon-xs {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
@@ -130,12 +133,12 @@ html, body {
 
 /* Üst Yapılandırma Paneli */
 .config-pane {
-  padding: 16px 18px;
+  padding: 14px 18px;
   background-color: var(--bg-canvas);
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .form-row {
@@ -147,7 +150,7 @@ html, body {
 .field-group {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
 }
 
 .field-grow {
@@ -172,6 +175,23 @@ label {
   color: var(--text-secondary);
 }
 
+.mono-textarea {
+  width: 100%;
+  min-height: 62px;
+  max-height: 110px;
+  padding: 7px 10px;
+  background-color: var(--bg-control);
+  border: 1px solid var(--border-control);
+  border-radius: 5px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  resize: vertical;
+  outline: none;
+  transition: border-color 120ms ease;
+}
+
 .mono-input,
 select {
   height: 32px;
@@ -190,19 +210,15 @@ select {
   width: 100%;
 }
 
+.mono-textarea::placeholder,
 .mono-input::placeholder {
   color: var(--text-muted);
 }
 
+.mono-textarea:focus,
 .mono-input:focus,
 select:focus {
   border-color: var(--accent-primary);
-}
-
-.mono-input:disabled,
-select:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 
 .input-with-button {
@@ -297,12 +313,12 @@ select:disabled {
 
 /* Telemetri ve İlerleme Paneli */
 .telemetry-pane {
-  padding: 16px 18px;
+  padding: 13px 18px;
   background-color: var(--bg-panel);
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .progress-header {
@@ -337,15 +353,12 @@ select:disabled {
 
 .badge {
   font-size: 11px;
+  font-family: var(--font-mono);
   padding: 2px 7px;
   border-radius: 4px;
   background-color: var(--bg-selected);
   border: 1px solid var(--border-control);
   color: var(--text-secondary);
-}
-
-.hidden {
-  display: none !important;
 }
 
 .mono-nums {
@@ -368,7 +381,7 @@ select:disabled {
 
 .progress-track {
   position: relative;
-  height: 10px;
+  height: 9px;
   background-color: var(--bg-control);
   border: 1px solid var(--border-subtle);
   border-radius: 4px;
@@ -396,7 +409,7 @@ select:disabled {
 .progress-legend {
   display: flex;
   justify-content: space-between;
-  font-size: 11.5px;
+  font-size: 11px;
   color: var(--text-secondary);
 }
 
@@ -417,7 +430,7 @@ select:disabled {
 
 /* 6 Hücreli Yapısal Telemetri Izgarası */
 .metrics-grid {
-  margin-top: 4px;
+  margin-top: 2px;
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   border: 1px solid var(--border-subtle);
@@ -427,11 +440,11 @@ select:disabled {
 }
 
 .metric-cell {
-  padding: 9px 12px;
+  padding: 7px 11px;
   border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
 }
 
 .metric-cell:last-child {
@@ -444,7 +457,7 @@ select:disabled {
 }
 
 .metric-value {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -461,11 +474,18 @@ select:disabled {
   background-color: var(--bg-canvas);
 }
 
-.tab-strip {
+.tab-strip-row {
   height: 36px;
   padding: 0 18px;
   background-color: var(--bg-panel);
   border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tab-strip {
+  height: 100%;
   display: flex;
   gap: 20px;
 }
@@ -492,6 +512,28 @@ select:disabled {
   border-bottom-color: var(--accent-primary);
 }
 
+.tab-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-ghost-sm {
+  height: 24px;
+  padding: 0 8px;
+  background: var(--bg-control);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.btn-ghost-sm:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
 .tab-content-area {
   flex: 1;
   min-height: 0;
@@ -505,8 +547,123 @@ select:disabled {
   padding: 12px 18px;
 }
 
+.tab-panel.panel-no-pad {
+  padding: 0;
+}
+
 .tab-panel.active {
   display: block;
+}
+
+/* Kuyruk Tablosu (DataGrid) */
+.queue-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.queue-table thead th {
+  position: sticky;
+  top: 0;
+  background-color: var(--bg-panel);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  z-index: 1;
+}
+
+.queue-table tbody tr {
+  border-bottom: 1px solid #161821;
+  cursor: pointer;
+  transition: background-color 90ms ease;
+}
+
+.queue-table tbody tr:hover {
+  background-color: var(--bg-hover);
+}
+
+.queue-table tbody tr.selected-row {
+  background-color: var(--bg-selected);
+}
+
+.queue-table td {
+  padding: 8px 12px;
+  vertical-align: middle;
+}
+
+.col-idx { width: 42px; color: var(--text-muted); font-family: var(--font-mono); }
+.col-name { min-width: 240px; }
+.col-status { width: 140px; }
+.col-size { width: 195px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.col-md5 { width: 230px; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-secondary); }
+.col-act { width: 90px; text-align: right; }
+
+.file-primary {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.file-sub-url {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  max-width: 380px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.q-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.q-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.q-queued { color: var(--text-secondary); }
+.q-queued .q-dot { background-color: var(--text-muted); }
+
+.q-downloading { color: var(--accent-primary); }
+.q-downloading .q-dot { background-color: var(--accent-primary); }
+
+.q-paused { color: var(--status-warn); }
+.q-paused .q-dot { background-color: var(--status-warn); }
+
+.q-completed { color: var(--status-ok); }
+.q-completed .q-dot { background-color: var(--status-ok); }
+
+.q-error { color: var(--status-err); }
+.q-error .q-dot { background-color: var(--status-err); }
+
+.row-action-btn {
+  background: var(--bg-control);
+  border: 1px solid var(--border-control);
+  color: var(--text-secondary);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.row-action-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
+}
+
+.empty-row td {
+  text-align: center;
+  padding: 28px;
+  color: var(--text-muted);
 }
 
 /* Konsol Günlüğü */

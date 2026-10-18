@@ -1,26 +1,35 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-export interface StartDownloadPayload {
-  url: string;
-  targetPath: string;
-  expectedMd5?: string;
+export interface EnqueuePayload {
+  items: Array<{ url: string; expectedMd5?: string }>;
+  targetFolder: string;
   concurrency: number;
   chunkSizeMB: number;
   saveIntervalMB: number;
 }
 
 contextBridge.exposeInMainWorld('downloaderApi', {
-  startDownload: (payload: StartDownloadPayload) => ipcRenderer.invoke('download:start', payload),
-  pauseDownload: () => ipcRenderer.invoke('download:pause'),
-  pickTargetFile: (defaultUrl: string, currentPath: string) =>
-    ipcRenderer.invoke('download:pick-target', defaultUrl, currentPath),
+  enqueueItems: (payload: EnqueuePayload) => ipcRenderer.invoke('queue:enqueue', payload),
+  startQueue: (payload: EnqueuePayload) => ipcRenderer.invoke('queue:start', payload),
+  pauseQueue: () => ipcRenderer.invoke('queue:pause'),
+  removeQueueItem: (id: string, deleteFiles: boolean) =>
+    ipcRenderer.invoke('queue:remove-item', id, deleteFiles),
+  clearCompleted: () => ipcRenderer.invoke('queue:clear-completed'),
+  resetQueue: (deleteFiles: boolean) => ipcRenderer.invoke('queue:reset-all', deleteFiles),
+  getQueueState: () => ipcRenderer.invoke('queue:get-state'),
+  pickTargetFolder: (currentFolder: string) =>
+    ipcRenderer.invoke('download:pick-folder', currentFolder),
   inspectMeta: (targetPath: string) => ipcRenderer.invoke('download:inspect-meta', targetPath),
-  resetProgressFiles: (targetPath: string) => ipcRenderer.invoke('download:reset-files', targetPath),
   openInFolder: (targetPath: string) => ipcRenderer.invoke('download:open-folder', targetPath),
-  getTestEndpoint: () => ipcRenderer.invoke('download:get-test-endpoint'),
+  getTestBatch: () => ipcRenderer.invoke('download:get-test-batch'),
   windowMinimize: () => ipcRenderer.send('window:minimize'),
   windowMaximize: () => ipcRenderer.send('window:maximize'),
   windowClose: () => ipcRenderer.send('window:close'),
+  onQueueUpdated: (callback: (data: unknown) => void) => {
+    const listener = (_event: unknown, data: unknown) => callback(data);
+    ipcRenderer.on('queue:updated', listener);
+    return () => ipcRenderer.removeListener('queue:updated', listener);
+  },
   onProgress: (callback: (data: unknown) => void) => {
     const listener = (_event: unknown, data: unknown) => callback(data);
     ipcRenderer.on('download:progress', listener);

@@ -18,7 +18,7 @@
       </svg>
       <span class="titlebar-title">Resumable MD5 Downloader</span>
       <span class="titlebar-sep">/</span>
-      <span id="headerContextLabel" class="titlebar-context">Hazır</span>
+      <span id="headerContextLabel" class="titlebar-context">Sıralı Kuyruk Hazır</span>
     </div>
 
     <div class="titlebar-controls">
@@ -43,56 +43,58 @@
 
   <!-- Ana Çalışma Alanı -->
   <main class="workspace">
-    <!-- Üst Komut ve Yapılandırma Paneli -->
+    <!-- Üst Komut ve Çoklu URL Yapılandırma Paneli -->
     <section class="config-pane">
       <div class="form-row">
         <div class="field-group field-grow">
           <div class="field-label-row">
-            <label for="inputUrl">İndirme Bağlantısı (HTTP / HTTPS URL)</label>
-            <button id="btnLoadTestUrl" type="button" class="btn-inline-link">
+            <label for="inputUrls">
+              İndirme Bağlantıları (Her satıra 1 URL — Opsiyonel MD5 için: <code>URL | beklenen_md5</code>)
+            </label>
+            <button id="btnLoadTestBatch" type="button" class="btn-inline-link">
               <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
                 <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
               </svg>
-              <span>Yerel 128 MB Test Akışı Yükle (Range + MD5)</span>
+              <span>Örnek 3'lü Test Kuyruğu Yükle (48 MB + 64 MB + 48 MB, MD5 Doğrulamalı)</span>
             </button>
           </div>
-          <input
-            id="inputUrl"
-            type="url"
-            class="mono-input"
-            placeholder="https://releases.ubuntu.com/24.04.1/ubuntu-24.04.1-desktop-amd64.iso"
+          <textarea
+            id="inputUrls"
+            class="mono-textarea"
+            rows="3"
+            placeholder="https://example.com/part1.iso | c90bebbd985223c343ef0ef7cb41ddaa&#10;https://example.com/part2.iso | 8f14e45fceea167a5a36dedd4bea2543"
             spellcheck="false"
-          />
+          ></textarea>
         </div>
       </div>
 
       <div class="form-row">
         <div class="field-group field-grow">
-          <label for="inputTarget">Hedef Dosya Yolu (USB Disk veya Yerel Klasör)</label>
+          <label for="inputTargetFolder">Hedef İndirme Klasörü (USB Disk veya Yerel Dizin — Dosyalar Sırayla Yazılır)</label>
           <div class="input-with-button">
             <input
-              id="inputTarget"
+              id="inputTargetFolder"
               type="text"
               class="mono-input"
-              placeholder="D:\Downloads\large-file.iso"
+              placeholder="D:\Downloads"
               spellcheck="false"
             />
-            <button id="btnBrowse" type="button" class="btn-secondary">
+            <button id="btnBrowseFolder" type="button" class="btn-secondary">
               <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
               </svg>
-              <span>Gözat</span>
+              <span>Klasör Seç</span>
             </button>
           </div>
         </div>
 
         <div class="field-group field-md5">
-          <label for="inputExpectedMd5">Beklenen MD5 (Opsiyonel Doğrulama)</label>
+          <label for="inputExpectedMd5">Tekil MD5 (Tek URL girildiyse opsiyonel)</label>
           <input
             id="inputExpectedMd5"
             type="text"
             class="mono-input"
-            placeholder="örn. c90bebbd985223c343ef0ef7cb41ddaa"
+            placeholder="Satırda '| md5' yoksa burası kullanılır"
             maxlength="32"
             spellcheck="false"
           />
@@ -103,7 +105,7 @@
       <div class="action-bar">
         <div class="params-group">
           <div class="param-item">
-            <label for="selectConcurrency">Paralel İşçi</label>
+            <label for="selectConcurrency">Paralel İşçi (Dosya İçi)</label>
             <select id="selectConcurrency">
               <option value="1">1 (Single-Stream)</option>
               <option value="2">2 İşçi</option>
@@ -137,21 +139,21 @@
         </div>
 
         <div class="buttons-group">
-          <button id="btnResetFiles" type="button" class="btn-secondary" title="Kayıtlı meta.json ve kısmi dosyayı sil">
-            <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
-              <polyline points="1 4 1 10 7 10" />
-              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-            </svg>
-            <span>Sıfırla</span>
-          </button>
-
           <button id="btnOpenFolder" type="button" class="btn-secondary">
             <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
               <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
               <polyline points="15 3 21 3 21 9" />
               <line x1="10" y1="14" x2="21" y2="3" />
             </svg>
-            <span>Klasörde Göster</span>
+            <span>Klasörü Aç</span>
+          </button>
+
+          <button id="btnAddQueue" type="button" class="btn-secondary">
+            <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            <span>Kuyruğa Ekle</span>
           </button>
 
           <button id="btnPause" type="button" class="btn-secondary" disabled>
@@ -166,19 +168,19 @@
             <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
               <polygon points="5 3 19 12 5 21 5 3" />
             </svg>
-            <span id="btnStartLabel">İndirmeyi Başlat</span>
+            <span id="btnStartLabel">Kuyruğu Sırayla Başlat</span>
           </button>
         </div>
       </div>
     </section>
 
-    <!-- İlerleme Çubuğu ve Canlı Telemetri Şeridi -->
+    <!-- Aktif Dosya İlerleme Çubuğu ve Canlı Telemetri Şeridi -->
     <section class="telemetry-pane">
       <div class="progress-header">
         <div class="status-cluster">
           <span id="statusDot" class="status-dot status-idle"></span>
           <span id="statusText" class="status-text">Beklemede</span>
-          <span id="resumeBadge" class="badge hidden">Kaldığı Yerden Devam Hazır</span>
+          <span id="activeFileBadge" class="badge">Aktif Dosya Yok</span>
         </div>
         <div class="progress-numbers mono-nums">
           <span id="bytesProgressText">0 B / 0 B</span>
@@ -187,7 +189,7 @@
         </div>
       </div>
 
-      <!-- Çift Katmanlı İlerleme Çubuğu (Yazılan + Fiziksel fsync Checkpoint) -->
+      <!-- Çift Katmanlı İlerleme Çubuğu -->
       <div class="progress-track" title="Mavi: Diske yazılan sıralı baytlar | Alt Çizgi: fsync + meta.json onaylı checkpoint">
         <div id="progressBarWritten" class="progress-fill-written" style="width: 0%"></div>
         <div id="progressBarSynced" class="progress-fill-synced" style="width: 0%"></div>
@@ -196,7 +198,7 @@
       <div class="progress-legend">
         <span class="legend-item">
           <span class="legend-swatch swatch-written"></span>
-          <span>Sıralı Yazılan & MD5 İşlenen</span>
+          <span>Aktif Dosya Sıralı Yazılan & MD5 İşlenen</span>
         </span>
         <span class="legend-item">
           <span class="legend-swatch swatch-synced"></span>
@@ -211,12 +213,12 @@
           <span id="metricSpeed" class="metric-value mono-nums">0.00 MB/sn</span>
         </div>
         <div class="metric-cell">
-          <span class="metric-label">Kalan Süre (ETA)</span>
+          <span class="metric-label">Aktif Dosya ETA</span>
           <span id="metricEta" class="metric-value mono-nums">—</span>
         </div>
         <div class="metric-cell">
-          <span class="metric-label">Çalışma Modu</span>
-          <span id="metricMode" class="metric-value">—</span>
+          <span class="metric-label">Kuyruk Durumu</span>
+          <span id="metricQueueSummary" class="metric-value mono-nums">0 / 0 Tamamlandı</span>
         </div>
         <div class="metric-cell">
           <span class="metric-label">Aktif HTTP İşçi</span>
@@ -227,7 +229,7 @@
           <span id="metricRamChunks" class="metric-value mono-nums">0 Parça</span>
         </div>
         <div class="metric-cell">
-          <span class="metric-label">MD5 Doğrulama</span>
+          <span class="metric-label">Son MD5 Durumu</span>
           <span id="metricMd5Status" class="metric-value">Bekleniyor</span>
         </div>
       </div>
@@ -235,29 +237,60 @@
 
     <!-- Alt İnceleme (Inspector) Sekmeleri -->
     <section class="inspector-pane">
-      <nav class="tab-strip" role="tablist">
-        <button class="tab-btn active" data-tab="tabLogs" role="tab" aria-selected="true">
-          Canlı Akış Günlüğü
-        </button>
-        <button class="tab-btn" data-tab="tabVerification" role="tab" aria-selected="false">
-          MD5 & Doğrulama Özeti
-        </button>
-        <button class="tab-btn" data-tab="tabMetaJson" role="tab" aria-selected="false">
-          meta.json Durumu (State)
-        </button>
-      </nav>
+      <div class="tab-strip-row">
+        <nav class="tab-strip" role="tablist">
+          <button class="tab-btn active" data-tab="tabQueue" role="tab" aria-selected="true">
+            Sıralı İndirme Kuyruğu (<span id="queueCountTabLabel">0</span>)
+          </button>
+          <button class="tab-btn" data-tab="tabLogs" role="tab" aria-selected="false">
+            Canlı Akış Günlüğü
+          </button>
+          <button class="tab-btn" data-tab="tabVerification" role="tab" aria-selected="false">
+            Seçili Dosya MD5 & Doğrulama
+          </button>
+          <button class="tab-btn" data-tab="tabMetaJson" role="tab" aria-selected="false">
+            Seçili Dosya meta.json (State)
+          </button>
+        </nav>
+
+        <div class="tab-actions">
+          <button id="btnClearCompleted" type="button" class="btn-ghost-sm">Tamamlananları Temizle</button>
+          <button id="btnResetQueue" type="button" class="btn-ghost-sm">Kuyruğu & Dosyaları Sıfırla</button>
+        </div>
+      </div>
 
       <div class="tab-content-area">
-        <!-- Sekme 1: Canlı Akış Günlüğü -->
-        <div id="tabLogs" class="tab-panel active">
+        <!-- Sekme 1: Sıralı İndirme Kuyruğu Tablosu -->
+        <div id="tabQueue" class="tab-panel active panel-no-pad">
+          <table class="queue-table">
+            <thead>
+              <tr>
+                <th class="col-idx">#</th>
+                <th class="col-name">Dosya Adı & Kaynak URL</th>
+                <th class="col-status">Durum</th>
+                <th class="col-size">İlerleme / Boyut</th>
+                <th class="col-md5">MD5 Doğrulama (Akış)</th>
+                <th class="col-act">İşlem</th>
+              </tr>
+            </thead>
+            <tbody id="queueTableBody">
+              <tr class="empty-row">
+                <td colspan="6">Kuyrukta henüz dosya yok. Yukarıdan URL ekleyip başlatabilirsiniz.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Sekme 2: Canlı Akış Günlüğü -->
+        <div id="tabLogs" class="tab-panel">
           <div id="logContainer" class="log-console mono-nums"></div>
         </div>
 
-        <!-- Sekme 2: MD5 & Doğrulama Özeti -->
+        <!-- Sekme 3: Seçili Dosya MD5 & Doğrulama Özeti -->
         <div id="tabVerification" class="tab-panel">
           <div class="kv-table">
             <div class="kv-row">
-              <span class="kv-key">Hedef Dosya</span>
+              <span class="kv-key">Hedef Dosya Yolu</span>
               <span id="verifyFilePath" class="kv-val mono-nums">—</span>
             </div>
             <div class="kv-row">
@@ -278,14 +311,14 @@
             </div>
             <div class="kv-row">
               <span class="kv-key">Doğrulama Sonucu</span>
-              <span id="verifyFinalResult" class="kv-val">Henüz tamamlanmadı</span>
+              <span id="verifyFinalResult" class="kv-val">Kuyruktan bir dosya seçin veya indirmeyi başlatın</span>
             </div>
           </div>
         </div>
 
-        <!-- Sekme 3: meta.json Durumu -->
+        <!-- Sekme 4: Seçili Dosya meta.json Durumu -->
         <div id="tabMetaJson" class="tab-panel">
-          <pre id="metaJsonViewer" class="json-viewer mono-nums">Henüz aktif bir .meta.json dosyası bulunmuyor.</pre>
+          <pre id="metaJsonViewer" class="json-viewer mono-nums">Kuyruktan bir dosya seçtiğinizde veya duraklattığınızda .meta.json içeriği burada görüntülenir.</pre>
         </div>
       </div>
     </section>
