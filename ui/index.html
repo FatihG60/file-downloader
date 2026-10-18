@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <title>Resumable MD5 Downloader</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Pencere Başlık Çubuğu -->
+  <header class="titlebar">
+    <div class="titlebar-brand">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="7 10 12 15 17 10" />
+        <line x1="12" y1="15" x2="12" y2="3" />
+      </svg>
+      <span class="titlebar-title">Resumable MD5 Downloader</span>
+      <span class="titlebar-sep">/</span>
+      <span id="headerContextLabel" class="titlebar-context">Hazır</span>
+    </div>
+
+    <div class="titlebar-controls">
+      <button id="btnMinimize" class="win-btn" title="Küçült" aria-label="Küçült">
+        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+          <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+      </button>
+      <button id="btnMaximize" class="win-btn" title="Büyüt" aria-label="Büyüt">
+        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+          <rect x="4" y="4" width="16" height="16" rx="1" />
+        </svg>
+      </button>
+      <button id="btnClose" class="win-btn win-btn-close" title="Kapat" aria-label="Kapat">
+        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Ana Çalışma Alanı -->
+  <main class="workspace">
+    <!-- Üst Komut ve Yapılandırma Paneli -->
+    <section class="config-pane">
+      <div class="form-row">
+        <div class="field-group field-grow">
+          <div class="field-label-row">
+            <label for="inputUrl">İndirme Bağlantısı (HTTP / HTTPS URL)</label>
+            <button id="btnLoadTestUrl" type="button" class="btn-inline-link">
+              <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+              </svg>
+              <span>Yerel 128 MB Test Akışı Yükle (Range + MD5)</span>
+            </button>
+          </div>
+          <input
+            id="inputUrl"
+            type="url"
+            class="mono-input"
+            placeholder="https://releases.ubuntu.com/24.04.1/ubuntu-24.04.1-desktop-amd64.iso"
+            spellcheck="false"
+          />
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="field-group field-grow">
+          <label for="inputTarget">Hedef Dosya Yolu (USB Disk veya Yerel Klasör)</label>
+          <div class="input-with-button">
+            <input
+              id="inputTarget"
+              type="text"
+              class="mono-input"
+              placeholder="D:\Downloads\large-file.iso"
+              spellcheck="false"
+            />
+            <button id="btnBrowse" type="button" class="btn-secondary">
+              <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg>
+              <span>Gözat</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="field-group field-md5">
+          <label for="inputExpectedMd5">Beklenen MD5 (Opsiyonel Doğrulama)</label>
+          <input
+            id="inputExpectedMd5"
+            type="text"
+            class="mono-input"
+            placeholder="örn. c90bebbd985223c343ef0ef7cb41ddaa"
+            maxlength="32"
+            spellcheck="false"
+          />
+        </div>
+      </div>
+
+      <!-- Motor Parametreleri ve Eylem Çubuğu -->
+      <div class="action-bar">
+        <div class="params-group">
+          <div class="param-item">
+            <label for="selectConcurrency">Paralel İşçi</label>
+            <select id="selectConcurrency">
+              <option value="1">1 (Single-Stream)</option>
+              <option value="2">2 İşçi</option>
+              <option value="4" selected>4 İşçi (Önerilen)</option>
+              <option value="6">6 İşçi</option>
+              <option value="8">8 İşçi</option>
+            </select>
+          </div>
+
+          <div class="param-item">
+            <label for="selectChunkSize">Pencere Dilimi</label>
+            <select id="selectChunkSize">
+              <option value="1">1 MB</option>
+              <option value="2">2 MB</option>
+              <option value="4" selected>4 MB</option>
+              <option value="8">8 MB</option>
+              <option value="16">16 MB</option>
+            </select>
+          </div>
+
+          <div class="param-item">
+            <label for="selectSaveInterval">fsync Checkpoint</label>
+            <select id="selectSaveInterval">
+              <option value="8">Her 8 MB</option>
+              <option value="16" selected>Her 16 MB</option>
+              <option value="32">Her 32 MB</option>
+              <option value="64">Her 64 MB</option>
+              <option value="128">Her 128 MB</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="buttons-group">
+          <button id="btnResetFiles" type="button" class="btn-secondary" title="Kayıtlı meta.json ve kısmi dosyayı sil">
+            <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+              <polyline points="1 4 1 10 7 10" />
+              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+            </svg>
+            <span>Sıfırla</span>
+          </button>
+
+          <button id="btnOpenFolder" type="button" class="btn-secondary">
+            <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+              <polyline points="15 3 21 3 21 9" />
+              <line x1="10" y1="14" x2="21" y2="3" />
+            </svg>
+            <span>Klasörde Göster</span>
+          </button>
+
+          <button id="btnPause" type="button" class="btn-secondary" disabled>
+            <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+              <rect x="6" y="4" width="4" height="16" />
+              <rect x="14" y="4" width="4" height="16" />
+            </svg>
+            <span>Duraklat (fsync)</span>
+          </button>
+
+          <button id="btnStart" type="button" class="btn-primary">
+            <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+              <polygon points="5 3 19 12 5 21 5 3" />
+            </svg>
+            <span id="btnStartLabel">İndirmeyi Başlat</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- İlerleme Çubuğu ve Canlı Telemetri Şeridi -->
+    <section class="telemetry-pane">
+      <div class="progress-header">
+        <div class="status-cluster">
+          <span id="statusDot" class="status-dot status-idle"></span>
+          <span id="statusText" class="status-text">Beklemede</span>
+          <span id="resumeBadge" class="badge hidden">Kaldığı Yerden Devam Hazır</span>
+        </div>
+        <div class="progress-numbers mono-nums">
+          <span id="bytesProgressText">0 B / 0 B</span>
+          <span class="sep">•</span>
+          <span id="percentText" class="percent-highlight">0.00%</span>
+        </div>
+      </div>
+
+      <!-- Çift Katmanlı İlerleme Çubuğu (Yazılan + Fiziksel fsync Checkpoint) -->
+      <div class="progress-track" title="Mavi: Diske yazılan sıralı baytlar | Alt Çizgi: fsync + meta.json onaylı checkpoint">
+        <div id="progressBarWritten" class="progress-fill-written" style="width: 0%"></div>
+        <div id="progressBarSynced" class="progress-fill-synced" style="width: 0%"></div>
+      </div>
+
+      <div class="progress-legend">
+        <span class="legend-item">
+          <span class="legend-swatch swatch-written"></span>
+          <span>Sıralı Yazılan & MD5 İşlenen</span>
+        </span>
+        <span class="legend-item">
+          <span class="legend-swatch swatch-synced"></span>
+          <span>Fiziksel USB fsync + meta.json Checkpoint: <strong id="syncedBytesLabel" class="mono-nums">0 B</strong></span>
+        </span>
+      </div>
+
+      <!-- 6 Hücreli Yapısal Telemetri Izgarası -->
+      <div class="metrics-grid">
+        <div class="metric-cell">
+          <span class="metric-label">Anlık Hız</span>
+          <span id="metricSpeed" class="metric-value mono-nums">0.00 MB/sn</span>
+        </div>
+        <div class="metric-cell">
+          <span class="metric-label">Kalan Süre (ETA)</span>
+          <span id="metricEta" class="metric-value mono-nums">—</span>
+        </div>
+        <div class="metric-cell">
+          <span class="metric-label">Çalışma Modu</span>
+          <span id="metricMode" class="metric-value">—</span>
+        </div>
+        <div class="metric-cell">
+          <span class="metric-label">Aktif HTTP İşçi</span>
+          <span id="metricWorkers" class="metric-value mono-nums">0</span>
+        </div>
+        <div class="metric-cell">
+          <span class="metric-label">RAM Ring-Buffer</span>
+          <span id="metricRamChunks" class="metric-value mono-nums">0 Parça</span>
+        </div>
+        <div class="metric-cell">
+          <span class="metric-label">MD5 Doğrulama</span>
+          <span id="metricMd5Status" class="metric-value">Bekleniyor</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Alt İnceleme (Inspector) Sekmeleri -->
+    <section class="inspector-pane">
+      <nav class="tab-strip" role="tablist">
+        <button class="tab-btn active" data-tab="tabLogs" role="tab" aria-selected="true">
+          Canlı Akış Günlüğü
+        </button>
+        <button class="tab-btn" data-tab="tabVerification" role="tab" aria-selected="false">
+          MD5 & Doğrulama Özeti
+        </button>
+        <button class="tab-btn" data-tab="tabMetaJson" role="tab" aria-selected="false">
+          meta.json Durumu (State)
+        </button>
+      </nav>
+
+      <div class="tab-content-area">
+        <!-- Sekme 1: Canlı Akış Günlüğü -->
+        <div id="tabLogs" class="tab-panel active">
+          <div id="logContainer" class="log-console mono-nums"></div>
+        </div>
+
+        <!-- Sekme 2: MD5 & Doğrulama Özeti -->
+        <div id="tabVerification" class="tab-panel">
+          <div class="kv-table">
+            <div class="kv-row">
+              <span class="kv-key">Hedef Dosya</span>
+              <span id="verifyFilePath" class="kv-val mono-nums">—</span>
+            </div>
+            <div class="kv-row">
+              <span class="kv-key">Devralınan Başlangıç Ofseti</span>
+              <span id="verifyResumedFrom" class="kv-val mono-nums">0 B (Sıfırdan)</span>
+            </div>
+            <div class="kv-row">
+              <span class="kv-key">Toplam İşlenen Bayt</span>
+              <span id="verifyTotalBytes" class="kv-val mono-nums">—</span>
+            </div>
+            <div class="kv-row">
+              <span class="kv-key">Hesaplanan Akış MD5</span>
+              <span id="verifyCalculatedMd5" class="kv-val mono-nums">—</span>
+            </div>
+            <div class="kv-row">
+              <span class="kv-key">Beklenen MD5</span>
+              <span id="verifyExpectedMd5" class="kv-val mono-nums">—</span>
+            </div>
+            <div class="kv-row">
+              <span class="kv-key">Doğrulama Sonucu</span>
+              <span id="verifyFinalResult" class="kv-val">Henüz tamamlanmadı</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sekme 3: meta.json Durumu -->
+        <div id="tabMetaJson" class="tab-panel">
+          <pre id="metaJsonViewer" class="json-viewer mono-nums">Henüz aktif bir .meta.json dosyası bulunmuyor.</pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

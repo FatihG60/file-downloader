@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.log
+*.meta.json
+*.meta.json.tmp
+*.bin
+*.iso
+.DS_Store
